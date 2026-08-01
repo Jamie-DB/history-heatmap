@@ -1,13 +1,20 @@
 # Christianity Heatmap (AD 33 to 2026)
 
-An interactive, self-contained animation of the estimated Christian share of population across the world, from Pentecost to today. Open `index.html` in any browser; no server, no network, no dependencies.
+An interactive, self-contained animation of the estimated Christian and Muslim share of population across the world, from Pentecost to today. Open `index.html` in any browser; no server, no network, no dependencies.
+
+## Layers
+
+- **Christianity** (blue ramp) and **Islam** (red ramp), individually toggleable.
+- Where both faiths hold at least 2% of a cell's population, the ramps blend into purple co-presence (al-Andalus, Ottoman Balkans, the Sahel, Nigeria, modern Western Europe). Below that threshold a cell renders winner-take-all, so unmixed frontiers (post-1492 Gibraltar, modern Anatolia) stay crisp.
+- City-scale overlay regions carry modern diaspora demographics honestly: Wayne County/Dearborn, Greater Paris, the Ruhr, Greater London, each with its own late-era anchors and a tight splat radius.
+- The simulation layer is loosely tethered to history (per-cell carrying capacity of 4x the historical share plus 5%), so the model chooses where and when faiths spread while history bounds how much; crank the sliders to fight the tether.
 
 ## What you're looking at
 
 - **Heat layer**: log-scaled Christian share of local population, weighted by population density, on a 2° world grid. A single-hue blue ramp; brighter = larger share (in dark mode) or darker (in light mode).
 - **Timeline**: non-linear (early centuries get extra width). Ticks mark era events (Edict of Milan, Great Schism, Reformation, ...), which are v1 hooks for a future events layer.
 - **City markers**: appear at their moment (Jerusalem 33, Constantinople 330, Kyiv 988, Manila 1571, ...), with labels that fade after a few decades.
-- **Deep links**: `index.html?year=1100&theme=dark&play=1&mode=percap`.
+- **Deep links**: `index.html?year=1100&theme=dark&play=1&mode=percap&layers=cm` (`layers=c`, `m`, or `cm`).
 - **Display modes**: "Population-weighted" (default) scales brightness by where the people are; "Per capita" renders share alone wherever meaningfully inhabited, so sparse-but-devout regions (the American Plains, the Bible Belt) read at full strength.
 - **Time-varying settlement**: weight points may carry a founding year (`[lon, lat, w, year]`); they ramp in over 60 years and each region's population is distributed across its currently active points. The US interior fills in progressively from 1624 (New York) to 1889 (Oklahoma City).
 

@@ -218,7 +218,7 @@
       <div class="legend-bar" id="legendBarM"></div>
       <div class="legend-ticks" id="legendTicksM"></div>
     </div>
-    <span class="legend-title" id="legMix"><span class="mix-chip" style="background:#846995"></span> mixed (both &ge; 3%)</span>
+    <span class="legend-title" id="legMix"><span class="mix-chip" style="background:#846995"></span> mixed (both &ge; 2%)</span>
     <span class="legend-title" style="color:var(--muted)" id="legendNote">log-scaled; brightness also weights population density</span>
   </div>
 
@@ -336,7 +336,7 @@ const REGIONS = [
  // two always-on points carry the pre-colonial population (Eastern Woodlands, Mississippi valley)
  [-76,42,.3],[-90,35,.3],
  // settlements ramp in from their founding year (4th element)
- [-74,40.7,1,1624],[-73.6,45.5,.5,1642],[-79.9,32.8,.4,1670],[-75.2,40,.7,1682],[-90.1,30,.5,1718],
+ [-74,40.7,1,1624],[-73.6,45.5,.5,1642],[-79.9,32.8,.4,1670],[-75.2,40,.7,1682],[-83,42.3,.6,1701],[-90.1,30,.5,1718],
  [-90.2,38.6,.6,1764],[-86.8,36.2,.5,1779],[-118.2,34.1,.9,1781],[-84.5,39.1,.5,1788],[-79.4,43.7,.5,1793],
  [-87.6,41.9,.9,1833],[-95.4,29.8,.6,1836],[-84.4,33.7,.6,1837],[-94.6,39.1,.5,1838],[-96.8,32.8,.6,1841],
  [-111.9,40.8,.4,1847],[-122.3,47.6,.4,1851],[-105,39.7,.5,1858],[-93.3,45,.5,1867],[-112.1,33.4,.5,1868],
@@ -351,7 +351,25 @@ const REGIONS = [
  p:[6,7,8,9,10,12,14,16,20,25,26,12,12,15,22,40,115,350,440]},
 {n:"Oceania", pts:[[151.2,-33.9,.9],[144.9,-37.8,.7],[174.8,-36.8,.4],[147.2,-9.4,.5],[153,-27.5,.4,1824],[115.9,-32,.3,1829]],
  s:[0,0,0,0,0,0,0,0,0,0,0,0,.001,.02,.25,.65,.85,.68,.52],
- p:[1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,6,13,31,45]}
+ p:[1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,6,13,31,45]},
+// City-scale overlay regions (issue #2): tight sigma (5th point element, in grid cells) puts
+// honest local demographics on top of the broad regional field. si given inline.
+{n:"Wayne County (Dearborn)", pts:[[-83.1,42.35,1,1900,.8]],
+ s:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.8,.75,.55,.45],
+ si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.002,.02,.08,.12],
+ p:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.8,1.6,1.8,1.85]},
+{n:"Greater Paris", pts:[[2.3,48.9,1,1850,1.1]],
+ s:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,.95,.9,.8,.55,.42],
+ si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.003,.03,.13,.16],
+ p:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,2.5,2.8,3]},
+{n:"Ruhr Valley", pts:[[7.2,51.5,1,1850,1.1]],
+ s:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,.95,.9,.8,.6,.5],
+ si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.002,.01,.1,.13],
+ p:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,.8,2,2.5,2.5,2.5]},
+{n:"Greater London", pts:[[-.1,51.5,1,1800,1.1]],
+ s:[0,0,0,0,0,0,0,0,0,0,0,0,0,.9,.9,.85,.7,.5,.42],
+ si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.01,.1,.15],
+ p:[0,0,0,0,0,0,0,0,0,0,0,0,0,1,2.5,4,4,4,4.3]}
 ];
 
 // Muslim share of population at the same anchor years, keyed by region name (issue #1).
@@ -391,7 +409,7 @@ const ISLAM_SHARES = {
 "Oceania":           [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.005,.02,.026]
 };
 const ZERO19 = new Array(19).fill(0);
-REGIONS.forEach(r => r.si = ISLAM_SHARES[r.n] || ZERO19);
+REGIONS.forEach(r => r.si = r.si || ISLAM_SHARES[r.n] || ZERO19);
 
 // City markers: [name, lon, lat, activation year]
 const CITIES = [
@@ -407,7 +425,7 @@ const CITIES = [
 ["Atlanta",-84.4,33.7,1837],["Kansas City",-94.6,39.1,1838],["Dallas",-96.8,32.8,1841],
 ["Salt Lake City",-111.9,40.8,1847],["Seattle",-122.3,47.6,1851],["Denver",-105,39.7,1858],
 ["Minneapolis",-93.3,45,1867],["Phoenix",-112.1,33.4,1868],["Oklahoma City",-97.5,35.5,1889],
-["Brasília",-47.9,-15.8,1960]
+["Brasília",-47.9,-15.8,1960],["Detroit",-83,42.3,1701],["Dearborn",-83.2,42.3,1975]
 ];
 
 // Timeline event ticks (v1 hooks for a richer events layer later)
@@ -469,20 +487,22 @@ domainCells.forEach((i, k) => {
 });
 
 // Precompute gaussian splat targets for every region weight point
-const SIGMA = 3.2, RAD = 9;
+const SIGMA = 3.2;
 const SPLATS = []; // {ri, pw, y0, cells:[], w:[]}
 REGIONS.forEach((reg, ri) => {
-  for (const [lon, lat, pw, y0] of reg.pts) {
+  for (const [lon, lat, pw, y0, sig] of reg.pts) {
+    const sigma = sig || SIGMA;                 // optional per-point sigma (grid cells) for city-scale blobs
+    const rad = Math.max(3, Math.ceil(sigma * 2.8));
     const cgx = Math.floor((lon + 180) / 2), cgy = Math.floor((90 - lat) / 2);
     const cells = [], w = [];
     let sum = 0;
-    for (let dy = -RAD; dy <= RAD; dy++) {
+    for (let dy = -rad; dy <= rad; dy++) {
       const gy = cgy + dy; if (gy < 0 || gy >= GH) continue;
-      for (let dx = -RAD; dx <= RAD; dx++) {
+      for (let dx = -rad; dx <= rad; dx++) {
         const gx = (cgx + dx + GW) % GW;
         const i = gy * GW + gx;
         if (!LAND[i]) continue;
-        const g = Math.exp(-(dx*dx + dy*dy) / (2 * SIGMA * SIGMA));
+        const g = Math.exp(-(dx*dx + dy*dy) / (2 * sigma * sigma));
         if (g < 0.012) continue;
         cells.push(i); w.push(g); sum += g;
       }
@@ -594,6 +614,7 @@ function runSimulation() {
   const status = document.getElementById('simStatus');
   const c = new Float32Array(NCELL), c2 = new Float32Array(NCELL);
   const suit = new Float32Array(NCELL);
+  const capF = new Float32Array(NCELL);
   let simIdx = 0, year = 0, snapIdx = 0, nextFieldRefresh = 0;
 
   function beginPass() {
@@ -618,9 +639,12 @@ function runSimulation() {
       }
       if (year >= nextFieldRefresh) {
         buildFields(year); buildPressure(year, sim.key);
+        const hist = sim.key === 's' ? histShareC : histShareM;
         for (let k = 0; k < domainCells.length; k++) {
           const i = domainCells[k];
           suit[i] = LAND[i] ? Math.pow(densF[i] / densMax, 0.35) + 0.015 : 0;
+          // loose tether to history: the sim decides where and when, history bounds how much
+          capF[i] = Math.min(1, 4 * hist[i] + 0.05);
         }
         nextFieldRefresh = year + 24;
       }
@@ -640,7 +664,9 @@ function runSimulation() {
           }
           v += SIM_DT * D * flux * 0.25;
           if (LAND[i]) {
-            v += SIM_DT * r * suit[i] * v * (1 - v);                     // logistic growth
+            const cap = capF[i];
+            v += SIM_DT * r * suit[i] * v * (1 - v / cap);               // logistic growth toward history-bounded cap
+            if (v > cap) v -= SIM_DT * 0.05 * (v - cap);                 // diffusion overshoot relaxes back
             if (pressF[i] > 0) v *= Math.max(0, 1 - SIM_DT * params.decline * pressF[i]); // decline eras
           } else {
             v *= oceanKeep;                                              // heat fades over open water
@@ -774,7 +800,7 @@ function resize() {
 
 function cssVar(name) { return getComputedStyle(document.querySelector('.viz-root')).getPropertyValue(name).trim(); }
 
-const MIXT = 0.03; // both faiths above this share = genuine co-presence, rendered as a blend
+const MIXT = 0.02; // both faiths above this share = genuine co-presence, rendered as a blend
 function draw(year) {
   buildFields(year);
   const urb = params.urban, blend = params.blend;
@@ -799,8 +825,10 @@ function draw(year) {
     const iC = showC ? (blend * logT(histShareC[i]) + (1 - blend) * logT(simC)) * densFac : 0;
     const iM = showM ? (blend * logT(histShareM[i]) + (1 - blend) * logT(simM)) * densFac : 0;
     if (showC && showM && sC >= MIXT && sM >= MIXT) {
-      // co-presence: blend the two ramps by relative share
-      const t = sM / (sC + sM);
+      // co-presence: blend the two ramps by relative share, gently minority-weighted
+      // (exponent < 1) so a 10-15% minority reads as a tint instead of vanishing
+      const rC = Math.pow(sC, 0.75), rM = Math.pow(sM, 0.75);
+      const t = rM / (rC + rM);
       const q = Math.min(255, Math.round(Math.max(iC, iM) * 255)) * 4;
       data[o]   = LUT[q]   + t * (LUTM[q]   - LUT[q]);
       data[o+1] = LUT[q+1] + t * (LUTM[q+1] - LUT[q+1]);
