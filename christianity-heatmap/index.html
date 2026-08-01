@@ -86,6 +86,10 @@
     border-radius: 7px; padding: 5px 8px; font-size: 12px;
   }
   .ctl-label { font-size: 11.5px; color: var(--muted); }
+  .chk { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
+  .chk input { accent-color: var(--accent); }
+  .legend-name { font-size: 10.5px; color: var(--ink-2); margin-bottom: 2px; }
+  .mix-chip { display: inline-block; width: 14px; height: 10px; border-radius: 3px; border: 1px solid var(--border); vertical-align: -1px; }
 
   .timeline { position: relative; height: 64px; margin: 2px 2px 10px; user-select: none; touch-action: none; cursor: pointer; }
   .tl-track { position: absolute; top: 14px; left: 0; right: 0; height: 6px; border-radius: 3px; background: var(--grid); }
@@ -136,7 +140,7 @@
   <header>
     <div>
       <h1>Christianity Across the World, AD 33 to 2026</h1>
-      <div class="subtitle">Estimated Christian share of local population through two millennia. Historical anchor data blended with a live diffusion model; drag the sliders to play.</div>
+      <div class="subtitle">Estimated share of local population through two millennia: Christianity in blue, Islam in red, genuine co-presence in purple. Historical anchor data blended with a live diffusion model; drag the sliders to play.</div>
     </div>
     <button class="theme-btn" id="themeBtn">Theme</button>
   </header>
@@ -162,6 +166,9 @@
       <option value="pop" selected>Population-weighted</option>
       <option value="percap">Per capita</option>
     </select>
+    <span class="ctl-label">Layers</span>
+    <label class="chk"><input type="checkbox" id="layerC" checked> Christianity</label>
+    <label class="chk"><input type="checkbox" id="layerM" checked> Islam</label>
     <span class="ctl-label" id="hoverReadout"></span>
   </div>
 
@@ -200,17 +207,24 @@
   </div>
 
   <div class="legend">
-    <span class="legend-title">Est. Christian share of local population</span>
-    <div>
+    <span class="legend-title">Est. share of local population</span>
+    <div id="legC">
+      <div class="legend-name">Christianity</div>
       <div class="legend-bar" id="legendBar"></div>
       <div class="legend-ticks" id="legendTicks"></div>
     </div>
+    <div id="legM">
+      <div class="legend-name">Islam</div>
+      <div class="legend-bar" id="legendBarM"></div>
+      <div class="legend-ticks" id="legendTicksM"></div>
+    </div>
+    <span class="legend-title" id="legMix"><span class="mix-chip" style="background:#846995"></span> mixed (both &ge; 3%)</span>
     <span class="legend-title" style="color:var(--muted)" id="legendNote">log-scaled; brightness also weights population density</span>
   </div>
 
   <details>
-    <summary>Data table: estimated Christian share by region</summary>
-    <div class="inner"><table id="dataTable"></table></div>
+    <summary>Data tables: estimated Christian and Muslim share by region</summary>
+    <div class="inner"><table id="dataTable"></table><table id="dataTableM" style="margin-top:14px"></table></div>
   </details>
   <details>
     <summary>About this model</summary>
@@ -340,6 +354,45 @@ const REGIONS = [
  p:[1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,6,13,31,45]}
 ];
 
+// Muslim share of population at the same anchor years, keyed by region name (issue #1).
+// Zero before 622; conquest-era conversion was gradual (decades to centuries after conquest).
+const ISLAM_SHARES = {
+"Levant":            [0,0,0,0,0,0,.45,.6,.68,.78,.84,.87,.88,.89,.89,.88,.85,.85,.85],
+"Anatolia":          [0,0,0,0,0,0,.02,.05,.45,.75,.8,.85,.85,.85,.85,.83,.98,.98,.98],
+"Egypt":             [0,0,0,0,0,0,.3,.5,.68,.82,.85,.87,.88,.89,.89,.89,.89,.9,.9],
+"Maghreb":           [0,0,0,0,0,0,.7,.85,.9,.96,.97,.97,.97,.97,.96,.95,.97,.99,.99],
+"Greece & Balkans":  [0,0,0,0,0,0,0,0,.02,.08,.15,.2,.2,.18,.15,.12,.08,.08,.08],
+"Italy":             [0,0,0,0,0,0,.01,.05,.02,0,0,0,0,0,0,0,.001,.02,.03],
+"Iberia":            [0,0,0,0,0,0,.35,.5,.4,.15,.05,.01,0,0,0,0,.001,.02,.04],
+"France":            [0,0,0,0,0,0,.01,0,0,0,0,0,0,0,.001,.002,.02,.08,.1],
+"Britain & Ireland": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.01,.04,.07],
+"Central Europe":    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.002,.01,.05,.08],
+"Scandinavia":       [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.002,.04,.07],
+"Rus & Russia":      [0,0,0,0,0,0,.02,.05,.12,.15,.14,.13,.12,.11,.11,.11,.1,.11,.12],
+"Poland & Baltics":  [0,0,0,0,0,0,0,0,.005,.005,.005,.005,.003,.002,.002,.002,.001,.002,.005],
+"Mesopotamia":       [0,0,0,0,0,0,.5,.65,.75,.9,.92,.93,.94,.95,.95,.93,.95,.97,.98],
+"Persia":            [0,0,0,0,0,0,.6,.8,.85,.92,.95,.97,.98,.98,.98,.98,.98,.99,.99],
+"Caucasus":          [0,0,0,0,0,0,.1,.15,.18,.22,.22,.22,.22,.2,.2,.2,.25,.2,.18],
+"Arabia":            [0,0,0,0,0,0,.95,.97,.98,.99,.99,.99,.99,.99,.99,.99,.97,.93,.92],
+"Ethiopia & Horn":   [0,0,0,0,0,0,.12,.2,.25,.3,.32,.33,.33,.33,.33,.34,.35,.38,.4],
+"Nubia & Sudan":     [0,0,0,0,0,0,.05,.1,.2,.45,.6,.7,.85,.87,.87,.85,.75,.65,.62],
+"West Africa":       [0,0,0,0,0,0,.01,.05,.15,.25,.3,.32,.35,.38,.4,.42,.45,.45,.46],
+"Central Africa":    [0,0,0,0,0,0,0,0,0,0,0,.01,.01,.01,.02,.02,.05,.08,.1],
+"East Africa":       [0,0,0,0,0,0,.01,.05,.08,.15,.16,.16,.17,.18,.18,.18,.18,.2,.2],
+"Southern Africa":   [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.01,.02,.02],
+"India":             [0,0,0,0,0,0,.01,.02,.1,.2,.22,.24,.25,.25,.24,.24,.28,.3,.32],
+"Central Asia":      [0,0,0,0,0,0,.3,.6,.7,.9,.92,.93,.94,.94,.94,.9,.7,.85,.88],
+"China":             [0,0,0,0,0,0,.002,.005,.01,.015,.015,.015,.015,.015,.015,.015,.014,.015,.015],
+"Korea & Japan":     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+"Southeast Asia":    [0,0,0,0,0,0,0,.005,.02,.15,.25,.3,.35,.38,.39,.4,.4,.42,.42],
+"North America":     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.005,.01,.012],
+"Mesoamerica & Caribbean": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.002,.002],
+"South America":     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.002,.003,.003],
+"Oceania":           [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.005,.02,.026]
+};
+const ZERO19 = new Array(19).fill(0);
+REGIONS.forEach(r => r.si = ISLAM_SHARES[r.n] || ZERO19);
+
 // City markers: [name, lon, lat, activation year]
 const CITIES = [
 ["Jerusalem",35.2,31.8,33],["Antioch",36.2,36.2,45],["Ephesus",27.3,38,52],["Rome",12.5,41.9,55],
@@ -363,11 +416,13 @@ const EVENTS = [
 [1054,"Great Schism"],[1095,"Crusades"],[1492,"Americas"],[1517,"Reformation"],[1910,"World missions"]
 ];
 
-// Ocean crossings for the simulation: [fromLon,fromLat, toLon,toLat, openYear]
+// Ocean crossings for the simulation: [fromLon,fromLat, toLon,toLat, openYear, religion]
 const ROUTES = [
-[-6,37, -70,19, 1493],[-9.1,38.7, -43.2,-22.9, 1500],[-9.1,38.7, 76.3,10, 1498],
-[-0.1,51.5, -71.1,42.4, 1607],[-99.1,19.4, 121,14.6, 1565],[4,51, 18.4,-33.9, 1652],
-[-0.1,51.5, 151.2,-33.9, 1788]
+[-6,37, -70,19, 1493,'c'],[-9.1,38.7, -43.2,-22.9, 1500,'c'],[-9.1,38.7, 76.3,10, 1498,'c'],
+[-0.1,51.5, -71.1,42.4, 1607,'c'],[-99.1,19.4, 121,14.6, 1565,'c'],[4,51, 18.4,-33.9, 1652,'c'],
+[-0.1,51.5, 151.2,-33.9, 1788,'c'],
+// Islam: Yemen to the Swahili coast, Arabia to Java via Indian Ocean traders
+[44.1,17.5, 39.3,-6.8, 900,'m'],[46.7,24.7, 106.8,-6.2, 1250,'m']
 ];
 
 /* ============ grid + geometry ============ */
@@ -459,36 +514,43 @@ function interp(arr, year) {
 }
 
 const densF = new Float32Array(NCELL);
-const shareNum = new Float32Array(NCELL);
-const histShare = new Float32Array(NCELL);
+const shareNumC = new Float32Array(NCELL);
+const shareNumM = new Float32Array(NCELL);
+const histShareC = new Float32Array(NCELL);
+const histShareM = new Float32Array(NCELL);
 let densMax = 1;
 
 function buildFields(year) {
-  densF.fill(0); shareNum.fill(0);
+  densF.fill(0); shareNumC.fill(0); shareNumM.fill(0);
   buildRegWeights(year);
   for (const sp of SPLATS) {
     const pw = ptWeight(sp, year);
-    if (pw <= 0) continue;
+    if (pw <= 0 || regWeightSum[sp.ri] <= 0) continue;
     const reg = REGIONS[sp.ri];
     const pop = interp(reg.p, year) * pw / regWeightSum[sp.ri];
-    const sh = interp(reg.s, year);
+    const shC = interp(reg.s, year);
+    const shM = interp(reg.si, year);
     const { cells, w } = sp;
     for (let k = 0; k < cells.length; k++) {
       const add = pop * w[k];
       densF[cells[k]] += add;
-      shareNum[cells[k]] += add * sh;
+      shareNumC[cells[k]] += add * shC;
+      shareNumM[cells[k]] += add * shM;
     }
   }
   densMax = 1e-9;
   for (let i = 0; i < NCELL; i++) {
-    histShare[i] = densF[i] > 1e-6 ? shareNum[i] / densF[i] : 0;
-    if (densF[i] > densMax) densMax = densF[i];
+    const d = densF[i];
+    histShareC[i] = d > 1e-6 ? shareNumC[i] / d : 0;
+    histShareM[i] = d > 1e-6 ? shareNumM[i] / d : 0;
+    if (d > densMax) densMax = d;
   }
 }
 
-// Per-region decline pressure (fraction of community lost per year), from anchor drops
-function pressureOf(ri, year) {
-  const s = REGIONS[ri].s;
+// Per-region decline pressure (fraction of community lost per year), from anchor drops.
+// key is 's' (Christianity) or 'si' (Islam), so each faith feels its own collapse eras.
+function pressureOf(ri, year, key) {
+  const s = REGIONS[ri][key];
   if (year >= ANCHORS[ANCHORS.length-1]) return 0;
   let i = 1;
   while (i < ANCHORS.length && ANCHORS[i] < year) i++;
@@ -498,14 +560,14 @@ function pressureOf(ri, year) {
   return (drop / Math.max(s[i-1], 1e-6)) / (ANCHORS[i] - ANCHORS[i-1]);
 }
 const pressF = new Float32Array(NCELL);
-function buildPressure(year) {
+function buildPressure(year, key) {
   pressF.fill(0);
   const numer = new Float32Array(NCELL);
   for (const sp of SPLATS) {
-    const pr = pressureOf(sp.ri, year);
+    const pr = pressureOf(sp.ri, year, key);
     if (pr <= 0) continue;
     const pw = ptWeight(sp, year);
-    if (pw <= 0) continue;
+    if (pw <= 0 || regWeightSum[sp.ri] <= 0) continue;
     const pop = interp(REGIONS[sp.ri].p, year) * pw / regWeightSum[sp.ri];
     const { cells, w } = sp;
     for (let k = 0; k < cells.length; k++) numer[cells[k]] += pop * w[k] * pr;
@@ -516,81 +578,101 @@ function buildPressure(year) {
 /* ============ simulation ============ */
 const SIM_DT = 2, SNAP_EVERY = 8;
 const NSNAP = Math.floor(YSPAN / SNAP_EVERY) + 2;
-const snaps = new Uint8Array(NSNAP * NCELL);
 let simReady = false, simToken = 0;
 const params = { growth: 1, spread: 1, urban: 0.55, decline: 1, blend: 0.8, mode: 'pop' };
-const routeCells = ROUTES.map(r => [cellOf(r[0], r[1]), cellOf(r[2], r[3]), r[4]]);
+const layers = { c: true, m: true };
+// one sim pass per religion: share key, seed cell/year, snapshot buffer, routes
+const SIMS = [
+  { key: 's',  seeds: [[cellOf(35.2, 31.8), .005]], seedYear: 33,  snaps: new Uint8Array(NSNAP * NCELL) },
+  { key: 'si', seeds: [[cellOf(39.8, 21.4), .02], [cellOf(39.6, 24.5), .02]], seedYear: 622, snaps: new Uint8Array(NSNAP * NCELL) }
+];
+const routeCells = ROUTES.map(r => [cellOf(r[0], r[1]), cellOf(r[2], r[3]), r[4], r[5]]);
 
 function runSimulation() {
   const token = ++simToken;
   simReady = false;
-  const c = new Float32Array(NCELL), c2 = new Float32Array(NCELL);
-  c[cellOf(35.2, 31.8)] = 0.005; // Jerusalem, AD 33
-  let year = Y0, snapIdx = 0;
   const status = document.getElementById('simStatus');
+  const c = new Float32Array(NCELL), c2 = new Float32Array(NCELL);
   const suit = new Float32Array(NCELL);
-  let nextFieldRefresh = Y0;
+  let simIdx = 0, year = 0, snapIdx = 0, nextFieldRefresh = 0;
 
+  function beginPass() {
+    const sim = SIMS[simIdx];
+    c.fill(0); c2.fill(0);
+    sim.snaps.fill(0);
+    year = Y0; snapIdx = 0; nextFieldRefresh = Y0;
+  }
   function saveSnap() {
-    const off = snapIdx * NCELL;
+    const off = snapIdx * NCELL, snaps = SIMS[simIdx].snaps;
     for (let i = 0; i < NCELL; i++) snaps[off + i] = Math.min(255, Math.round(c[i] * 255));
     snapIdx++;
   }
   function step() {
     if (token !== simToken) return; // superseded by newer run
+    const sim = SIMS[simIdx];
+    const rel = sim.key === 's' ? 'c' : 'm';
     const until = Math.min(Y1, year + 120);
     while (year < until) {
+      if (year === sim.seedYear || (year < sim.seedYear && year + SIM_DT > sim.seedYear)) {
+        for (const [sc, sv] of sim.seeds) c[sc] = Math.max(c[sc], sv);
+      }
       if (year >= nextFieldRefresh) {
-        buildFields(year); buildPressure(year);
+        buildFields(year); buildPressure(year, sim.key);
         for (let k = 0; k < domainCells.length; k++) {
           const i = domainCells[k];
           suit[i] = LAND[i] ? Math.pow(densF[i] / densMax, 0.35) + 0.015 : 0;
         }
         nextFieldRefresh = year + 24;
       }
-      const r = 0.035 * params.growth, D = 0.06 * params.spread;
-      const oceanKeep = Math.pow(0.82, SIM_DT);
-      for (let k = 0; k < domainCells.length; k++) {
-        const i = domainCells[k];
-        let v = c[i];
-        // diffusion (4-neighbor, weaker across water)
-        let flux = 0;
-        for (let d = 0; d < 4; d++) {
-          const j = NB[k*4+d];
-          if (j < 0) continue;
-          const cond = (LAND[i] && LAND[j]) ? 1 : 0.32;
-          flux += cond * (c[j] - v);
+      if (year >= sim.seedYear) {
+        const r = 0.035 * params.growth, D = 0.06 * params.spread;
+        const oceanKeep = Math.pow(0.82, SIM_DT);
+        for (let k = 0; k < domainCells.length; k++) {
+          const i = domainCells[k];
+          let v = c[i];
+          // diffusion (4-neighbor, weaker across water)
+          let flux = 0;
+          for (let d = 0; d < 4; d++) {
+            const j = NB[k*4+d];
+            if (j < 0) continue;
+            const cond = (LAND[i] && LAND[j]) ? 1 : 0.32;
+            flux += cond * (c[j] - v);
+          }
+          v += SIM_DT * D * flux * 0.25;
+          if (LAND[i]) {
+            v += SIM_DT * r * suit[i] * v * (1 - v);                     // logistic growth
+            if (pressF[i] > 0) v *= Math.max(0, 1 - SIM_DT * params.decline * pressF[i]); // decline eras
+          } else {
+            v *= oceanKeep;                                              // heat fades over open water
+          }
+          c2[i] = v < 1e-7 ? 0 : Math.min(1, v);
         }
-        v += SIM_DT * D * flux * 0.25;
-        if (LAND[i]) {
-          v += SIM_DT * r * suit[i] * v * (1 - v);                     // logistic growth
-          if (pressF[i] > 0) v *= Math.max(0, 1 - SIM_DT * params.decline * pressF[i]); // decline eras
-        } else {
-          v *= oceanKeep;                                              // heat fades over open water
+        for (let k = 0; k < domainCells.length; k++) { const i = domainCells[k]; c[i] = c2[i]; }
+        // dated ocean routes for this religion
+        for (const [a, b, ry, tag] of routeCells) {
+          if (tag === rel && year >= ry) c[b] = Math.min(1, c[b] + SIM_DT * 0.012 * params.spread * c[a] * (1 - c[b]));
         }
-        c2[i] = v < 1e-7 ? 0 : Math.min(1, v);
-      }
-      for (let k = 0; k < domainCells.length; k++) { const i = domainCells[k]; c[i] = c2[i]; }
-      // dated ocean routes
-      for (const [a, b, ry] of routeCells) {
-        if (year >= ry) c[b] = Math.min(1, c[b] + SIM_DT * 0.012 * params.spread * c[a] * (1 - c[b]));
       }
       while (year + SIM_DT > Y0 + snapIdx * SNAP_EVERY && snapIdx < NSNAP) saveSnap();
       year += SIM_DT;
     }
     if (year < Y1) {
-      status.textContent = 'computing model… ' + Math.round(100 * (year - Y0) / YSPAN) + '%';
+      const frac = (simIdx + (year - Y0) / YSPAN) / SIMS.length;
+      status.textContent = 'computing model… ' + Math.round(100 * frac) + '%';
       requestAnimationFrame(step);
     } else {
       while (snapIdx < NSNAP) saveSnap();
+      simIdx++;
+      if (simIdx < SIMS.length) { beginPass(); requestAnimationFrame(step); return; }
       simReady = true;
       status.textContent = '';
       needsRedraw = true;
     }
   }
+  beginPass();
   step();
 }
-function simShareAt(i, year) {
+function simShareAt(snaps, i, year) {
   if (!simReady) return 0;
   const f = Math.min(NSNAP - 1.001, Math.max(0, (year - Y0) / SNAP_EVERY));
   const s0 = f | 0, t = f - s0;
@@ -605,26 +687,30 @@ fieldCanvas.width = GW; fieldCanvas.height = GH;
 const fctx = fieldCanvas.getContext('2d');
 const fimg = fctx.createImageData(GW, GH);
 
-// Sequential blue ramp (validated reference palette). Low -> high, per theme.
+// Sequential ramps, low -> high, per theme. Blue = Christianity (validated reference palette);
+// red = Islam (diverging counterpart, same lightness march).
 const RAMP = ['#cde2fb','#b7d3f6','#9ec5f4','#86b6ef','#6da7ec','#5598e7','#3987e5','#2a78d6','#256abf','#1c5cab','#184f95','#104281','#0d366b'];
+const RAMP_RED = ['#fcdcd6','#f8c8c0','#f4b4aa','#efa095','#e98c80','#e2776b','#d96256','#cf4c45','#bc3e3b','#a53431','#8b2b29','#712222','#591b1b'];
 let LUT = new Uint8ClampedArray(256 * 4);
+let LUTM = new Uint8ClampedArray(256 * 4);
 function isDark() {
   const t = document.documentElement.getAttribute('data-theme');
   if (t) return t === 'dark';
   return matchMedia('(prefers-color-scheme: dark)').matches;
 }
 function hex2rgb(h) { return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)]; }
-function buildLUT() {
-  const stops = (isDark() ? RAMP.slice().reverse() : RAMP).map(hex2rgb);
+function fillLUT(lut, ramp) {
+  const stops = (isDark() ? ramp.slice().reverse() : ramp).map(hex2rgb);
   for (let v = 0; v < 256; v++) {
     const t = v / 255, x = t * (stops.length - 1), i0 = Math.min(stops.length - 2, x | 0), ft = x - i0;
     const a = stops[i0], b = stops[i0 + 1];
-    LUT[v*4]   = a[0] + ft * (b[0] - a[0]);
-    LUT[v*4+1] = a[1] + ft * (b[1] - a[1]);
-    LUT[v*4+2] = a[2] + ft * (b[2] - a[2]);
-    LUT[v*4+3] = Math.round(255 * Math.min(0.95, Math.pow(t, 0.85) * 1.05));
+    lut[v*4]   = a[0] + ft * (b[0] - a[0]);
+    lut[v*4+1] = a[1] + ft * (b[1] - a[1]);
+    lut[v*4+2] = a[2] + ft * (b[2] - a[2]);
+    lut[v*4+3] = Math.round(255 * Math.min(0.95, Math.pow(t, 0.85) * 1.05));
   }
 }
+function buildLUT() { fillLUT(LUT, RAMP); fillLUT(LUTM, RAMP_RED); }
 
 const K = 150, LOGK = Math.log(1 + K);
 const logT = s => s <= 0 ? 0 : Math.log(1 + K * s) / LOGK;
@@ -688,25 +774,46 @@ function resize() {
 
 function cssVar(name) { return getComputedStyle(document.querySelector('.viz-root')).getPropertyValue(name).trim(); }
 
+const MIXT = 0.03; // both faiths above this share = genuine co-presence, rendered as a blend
 function draw(year) {
   buildFields(year);
   const urb = params.urban, blend = params.blend;
+  const showC = layers.c, showM = layers.m;
+  const snapsC = SIMS[0].snaps, snapsM = SIMS[1].snaps;
   const data = fimg.data;
   for (let i = 0; i < NCELL; i++) {
-    let v = 0;
-    if (LAND[i] && densF[i] > 1e-6) {
-      // blend in log-intensity space so a small sim weight reads as a faint overlay, not a dark blob
-      const it = blend * logT(histShare[i]) + (1 - blend) * logT(simShareAt(i, year));
-      // population-weighted: saturating density factor (cells above ~12% of world max read full strength)
-      // per capita: share alone wherever meaningfully inhabited (soft gate keeps empty deserts dark)
-      const densFac = params.mode === 'percap'
-        ? Math.min(1, densF[i] / (0.02 * densMax))
-        : Math.pow(Math.min(1, densF[i] / (0.12 * densMax)), urb);
-      v = it * densFac;
-    }
-    const q = Math.min(255, Math.round(v * 255)) * 4;
     const o = i * 4;
-    data[o] = LUT[q]; data[o+1] = LUT[q+1]; data[o+2] = LUT[q+2]; data[o+3] = LUT[q+3];
+    if (!LAND[i] || densF[i] <= 1e-6 || (!showC && !showM)) {
+      data[o] = data[o+1] = data[o+2] = data[o+3] = 0;
+      continue;
+    }
+    // population-weighted: saturating density factor (cells above ~12% of world max read full strength)
+    // per capita: share alone wherever meaningfully inhabited (soft gate keeps empty deserts dark)
+    const densFac = params.mode === 'percap'
+      ? Math.min(1, densF[i] / (0.02 * densMax))
+      : Math.pow(Math.min(1, densF[i] / (0.12 * densMax)), urb);
+    // linear shares decide dominance and mixing; log-space blend drives brightness
+    const simC = simShareAt(snapsC, i, year), simM = simShareAt(snapsM, i, year);
+    const sC = showC ? blend * histShareC[i] + (1 - blend) * simC : 0;
+    const sM = showM ? blend * histShareM[i] + (1 - blend) * simM : 0;
+    const iC = showC ? (blend * logT(histShareC[i]) + (1 - blend) * logT(simC)) * densFac : 0;
+    const iM = showM ? (blend * logT(histShareM[i]) + (1 - blend) * logT(simM)) * densFac : 0;
+    if (showC && showM && sC >= MIXT && sM >= MIXT) {
+      // co-presence: blend the two ramps by relative share
+      const t = sM / (sC + sM);
+      const q = Math.min(255, Math.round(Math.max(iC, iM) * 255)) * 4;
+      data[o]   = LUT[q]   + t * (LUTM[q]   - LUT[q]);
+      data[o+1] = LUT[q+1] + t * (LUTM[q+1] - LUT[q+1]);
+      data[o+2] = LUT[q+2] + t * (LUTM[q+2] - LUT[q+2]);
+      data[o+3] = LUT[q+3];
+    } else if (sM > sC) {
+      // winner-take-all below the mix threshold keeps unmixed frontiers crisp
+      const q = Math.min(255, Math.round(iM * 255)) * 4;
+      data[o] = LUTM[q]; data[o+1] = LUTM[q+1]; data[o+2] = LUTM[q+2]; data[o+3] = LUTM[q+3];
+    } else {
+      const q = Math.min(255, Math.round(iC * 255)) * 4;
+      data[o] = LUT[q]; data[o+1] = LUT[q+1]; data[o+2] = LUT[q+2]; data[o+3] = LUT[q+3];
+    }
   }
   fctx.putImageData(fimg, 0, 0);
 
@@ -791,6 +898,12 @@ let speed = 25;
     params.mode = 'percap';
     document.getElementById('modeSel').value = 'percap';
   }
+  const lq = q.get('layers'); // e.g. ?layers=c, ?layers=m, ?layers=cm
+  if (lq) {
+    layers.c = lq.includes('c'); layers.m = lq.includes('m');
+    document.getElementById('layerC').checked = layers.c;
+    document.getElementById('layerM').checked = layers.m;
+  }
 }
 const playBtn = document.getElementById('playBtn');
 const yearBig = document.getElementById('yearBig');
@@ -819,6 +932,8 @@ playBtn.addEventListener('click', () => {
   playing = !playing; needsRedraw = true;
 });
 document.getElementById('speedSel').addEventListener('change', e => speed = +e.target.value);
+document.getElementById('layerC').addEventListener('change', e => { layers.c = e.target.checked; buildLegend(); needsRedraw = true; });
+document.getElementById('layerM').addEventListener('change', e => { layers.m = e.target.checked; buildLegend(); needsRedraw = true; });
 document.getElementById('modeSel').addEventListener('change', e => {
   params.mode = e.target.value;
   document.getElementById('legendNote').textContent = params.mode === 'percap'
@@ -882,8 +997,9 @@ canvas.addEventListener('mousemove', e => {
   });
   if (best === null) { tooltip.style.display = 'none'; return; }
   const reg = REGIONS[best];
-  const sh = interp(reg.s, year), pop = interp(reg.p, year);
-  tooltip.innerHTML = `<b>${reg.n}</b><div class="tt-sub">est. ${sh < 0.01 ? (sh*100).toFixed(2) : (sh*100).toFixed(0)}% Christian &middot; ~${pop < 1 ? (pop*1000).toFixed(0) + 'k' : Math.round(pop) + 'M'} people &middot; ${year < 1000 ? 'AD ' + Math.round(year) : Math.round(year)}</div>`;
+  const shC = interp(reg.s, year), shM = interp(reg.si, year), pop = interp(reg.p, year);
+  const pct = v => v < 0.01 ? (v*100).toFixed(2) : (v*100).toFixed(0);
+  tooltip.innerHTML = `<b>${reg.n}</b><div class="tt-sub">est. ${pct(shC)}% Christian &middot; ${pct(shM)}% Muslim &middot; ~${pop < 1 ? (pop*1000).toFixed(0) + 'k' : Math.round(pop) + 'M'} people &middot; ${year < 1000 ? 'AD ' + Math.round(year) : Math.round(year)}</div>`;
   tooltip.style.display = 'block';
   const wr = canvas.parentElement.getBoundingClientRect();
   tooltip.style.left = Math.min(wr.width - 240, e.clientX - wr.left + 14) + 'px';
@@ -893,31 +1009,43 @@ canvas.addEventListener('mouseleave', () => tooltip.style.display = 'none');
 
 // legend
 function buildLegend() {
-  const stops = isDark() ? RAMP.slice().reverse() : RAMP;
-  document.getElementById('legendBar').style.background =
-    `linear-gradient(to right, ${stops.map((c, i) => c + ' ' + (i / (stops.length - 1) * 100) + '%').join(',')})`;
-  const ticks = document.getElementById('legendTicks');
-  ticks.innerHTML = '';
-  for (const [share, label] of [[0.01,'1%'],[0.1,'10%'],[0.5,'50%'],[0.9,'90%']]) {
-    const s = document.createElement('span');
-    s.style.left = (logT(share) * 100) + '%';
-    s.textContent = label;
-    ticks.appendChild(s);
+  const grad = ramp => {
+    const stops = isDark() ? ramp.slice().reverse() : ramp;
+    return `linear-gradient(to right, ${stops.map((c, i) => c + ' ' + (i / (stops.length - 1) * 100) + '%').join(',')})`;
+  };
+  document.getElementById('legendBar').style.background = grad(RAMP);
+  document.getElementById('legendBarM').style.background = grad(RAMP_RED);
+  for (const id of ['legendTicks', 'legendTicksM']) {
+    const ticks = document.getElementById(id);
+    ticks.innerHTML = '';
+    for (const [share, label] of [[0.01,'1%'],[0.1,'10%'],[0.5,'50%'],[0.9,'90%']]) {
+      const s = document.createElement('span');
+      s.style.left = (logT(share) * 100) + '%';
+      s.textContent = label;
+      ticks.appendChild(s);
+    }
   }
+  document.getElementById('legC').style.display = layers.c ? '' : 'none';
+  document.getElementById('legM').style.display = layers.m ? '' : 'none';
+  document.getElementById('legMix').style.display = (layers.c && layers.m) ? '' : 'none';
 }
 
-// data table
-(function buildTable(){
+// data tables (one per faith)
+(function buildTables(){
   const cols = [100, 300, 600, 1000, 1400, 1700, 1900, 2026];
-  const tbl = document.getElementById('dataTable');
-  let html = '<tr><th>Region</th>' + cols.map(c => `<th>${c < 1000 ? 'AD ' + c : c}</th>`).join('') + '</tr>';
-  for (const reg of REGIONS) {
-    html += `<tr><td>${reg.n}</td>` + cols.map(c => {
-      const v = interp(reg.s, c) * 100;
-      return `<td>${v === 0 ? '–' : v < 1 ? v.toFixed(2) : v.toFixed(0)}%</td>`;
-    }).join('') + '</tr>';
-  }
-  tbl.innerHTML = html;
+  const fill = (tblId, key, title) => {
+    const tbl = document.getElementById(tblId);
+    let html = `<tr><th>${title}</th>` + cols.map(c => `<th>${c < 1000 ? 'AD ' + c : c}</th>`).join('') + '</tr>';
+    for (const reg of REGIONS) {
+      html += `<tr><td>${reg.n}</td>` + cols.map(c => {
+        const v = interp(reg[key], c) * 100;
+        return `<td>${v === 0 ? '–' : v < 1 ? v.toFixed(2) : v.toFixed(0)}%</td>`;
+      }).join('') + '</tr>';
+    }
+    tbl.innerHTML = html;
+  };
+  fill('dataTable', 's', 'Christian share');
+  fill('dataTableM', 'si', 'Muslim share');
 })();
 
 /* ============ main loop ============ */
