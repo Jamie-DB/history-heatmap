@@ -7,7 +7,9 @@ An interactive, self-contained animation of the estimated Christian share of pop
 - **Heat layer**: log-scaled Christian share of local population, weighted by population density, on a 2° world grid. A single-hue blue ramp; brighter = larger share (in dark mode) or darker (in light mode).
 - **Timeline**: non-linear (early centuries get extra width). Ticks mark era events (Edict of Milan, Great Schism, Reformation, ...), which are v1 hooks for a future events layer.
 - **City markers**: appear at their moment (Jerusalem 33, Constantinople 330, Kyiv 988, Manila 1571, ...), with labels that fade after a few decades.
-- **Deep links**: `index.html?year=1100&theme=dark&play=1`.
+- **Deep links**: `index.html?year=1100&theme=dark&play=1&mode=percap`.
+- **Display modes**: "Population-weighted" (default) scales brightness by where the people are; "Per capita" renders share alone wherever meaningfully inhabited, so sparse-but-devout regions (the American Plains, the Bible Belt) read at full strength.
+- **Time-varying settlement**: weight points may carry a founding year (`[lon, lat, w, year]`); they ramp in over 60 years and each region's population is distributed across its currently active points. The US interior fills in progressively from 1624 (New York) to 1889 (Oklahoma City).
 
 ## The hybrid model
 
@@ -25,6 +27,7 @@ Two layers, mixed by the blend slider:
 | Urban concentration | How tightly heat hugs population centers (render) |
 | Decline sensitivity | Response to conquest and suppression eras (sim) |
 | History ↔ Simulation | 100% = pure anchor data; 0% = the model runs free |
+| Display mode | Population-weighted vs per capita (render) |
 
 Sim-affecting sliders trigger a ~1s background recompute (progress shown on the map).
 

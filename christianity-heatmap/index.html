@@ -156,6 +156,11 @@
       <option value="60">60 yrs/sec</option>
       <option value="140">140 yrs/sec</option>
     </select>
+    <span class="ctl-label">Display</span>
+    <select id="modeSel">
+      <option value="pop" selected>Population-weighted</option>
+      <option value="percap">Per capita</option>
+    </select>
     <span class="ctl-label" id="hoverReadout"></span>
   </div>
 
@@ -199,7 +204,7 @@
       <div class="legend-bar" id="legendBar"></div>
       <div class="legend-ticks" id="legendTicks"></div>
     </div>
-    <span class="legend-title" style="color:var(--muted)">log-scaled; brightness also weights population density</span>
+    <span class="legend-title" style="color:var(--muted)" id="legendNote">log-scaled; brightness also weights population density</span>
   </div>
 
   <details>
@@ -312,16 +317,24 @@ const REGIONS = [
 {n:"Southeast Asia", pts:[[121,14.6,1],[106.8,-6.2,.8],[106.7,10.8,.6],[100.5,13.8,.5],[96.2,16.8,.4]],
  s:[0,0,0,0,0,0,0,0,0,.001,.002,.04,.06,.07,.08,.1,.15,.2,.22],
  p:[8,9,10,12,14,16,18,22,26,30,34,38,42,50,60,90,180,530,690]},
-{n:"North America", pts:[[-74,40.7,1],[-87.6,41.9,.8],[-118.2,34.1,.8],[-95.4,29.8,.6],[-79.4,43.7,.5],[-122.3,47.6,.4],[-84.4,33.7,.6]],
+{n:"North America", pts:[
+ // two always-on points carry the pre-colonial population (Eastern Woodlands, Mississippi valley)
+ [-76,42,.3],[-90,35,.3],
+ // settlements ramp in from their founding year (4th element)
+ [-74,40.7,1,1624],[-73.6,45.5,.5,1642],[-79.9,32.8,.4,1670],[-75.2,40,.7,1682],[-90.1,30,.5,1718],
+ [-90.2,38.6,.6,1764],[-86.8,36.2,.5,1779],[-118.2,34.1,.9,1781],[-84.5,39.1,.5,1788],[-79.4,43.7,.5,1793],
+ [-87.6,41.9,.9,1833],[-95.4,29.8,.6,1836],[-84.4,33.7,.6,1837],[-94.6,39.1,.5,1838],[-96.8,32.8,.6,1841],
+ [-111.9,40.8,.4,1847],[-122.3,47.6,.4,1851],[-105,39.7,.5,1858],[-93.3,45,.5,1867],[-112.1,33.4,.5,1868],
+ [-123.1,49.3,.4,1886],[-97.5,35.5,.4,1889]],
  s:[0,0,0,0,0,0,0,0,0,0,0,.02,.1,.35,.55,.75,.85,.78,.64],
  p:[2,2,2,2,3,3,3,4,5,5,4,4,5,10,30,85,180,315,380]},
 {n:"Mesoamerica & Caribbean", pts:[[-99.1,19.4,1],[-82.4,23.1,.5],[-90.5,14.6,.5],[-69.9,18.5,.4]],
  s:[0,0,0,0,0,0,0,0,0,0,.001,.4,.75,.9,.92,.95,.96,.95,.9],
  p:[6,7,8,9,10,11,13,15,18,22,22,7,8,10,12,18,42,135,180]},
-{n:"South America", pts:[[-77,-12,.8],[-74.1,4.7,.7],[-43.2,-22.9,.9],[-46.6,-23.6,1],[-58.4,-34.6,.8],[-70.7,-33.4,.5]],
+{n:"South America", pts:[[-77,-12,.8],[-74.1,4.7,.7],[-43.2,-22.9,.9],[-46.6,-23.6,1],[-58.4,-34.6,.8],[-70.7,-33.4,.5],[-47.9,-15.8,.4,1960]],
  s:[0,0,0,0,0,0,0,0,0,0,.001,.25,.65,.88,.9,.93,.95,.9,.85],
  p:[6,7,8,9,10,12,14,16,20,25,26,12,12,15,22,40,115,350,440]},
-{n:"Oceania", pts:[[151.2,-33.9,.9],[144.9,-37.8,.7],[174.8,-36.8,.4],[147.2,-9.4,.5]],
+{n:"Oceania", pts:[[151.2,-33.9,.9],[144.9,-37.8,.7],[174.8,-36.8,.4],[147.2,-9.4,.5],[153,-27.5,.4,1824],[115.9,-32,.3,1829]],
  s:[0,0,0,0,0,0,0,0,0,0,0,0,.001,.02,.25,.65,.85,.68,.52],
  p:[1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,6,13,31,45]}
 ];
@@ -333,7 +346,14 @@ const CITIES = [
 ["Constantinople",29,41,330],["Axum",38.7,14.1,340],["Canterbury",1.1,51.3,597],["Aachen",6.1,50.8,800],
 ["Kyiv",30.5,50.5,988],["Wittenberg",12.6,51.9,1517],["Mexico City",-99.1,19.4,1524],["Goa",73.8,15.5,1542],
 ["São Paulo",-46.6,-23.6,1554],["Manila",121,14.6,1571],["Boston",-71.1,42.4,1630],["Cape Town",18.4,-33.9,1652],
-["Sydney",151.2,-33.9,1788],["Lagos",3.4,6.5,1861],["Seoul",127,37.6,1885]
+["Sydney",151.2,-33.9,1788],["Lagos",3.4,6.5,1861],["Seoul",127,37.6,1885],
+["Montreal",-73.6,45.5,1642],["Philadelphia",-75.2,40,1682],["New Orleans",-90.1,30,1718],
+["St. Louis",-90.2,38.6,1764],["Nashville",-86.8,36.2,1779],["Los Angeles",-118.2,34.1,1781],
+["Brisbane",153,-27.5,1824],["Chicago",-87.6,41.9,1833],["Houston",-95.4,29.8,1836],
+["Atlanta",-84.4,33.7,1837],["Kansas City",-94.6,39.1,1838],["Dallas",-96.8,32.8,1841],
+["Salt Lake City",-111.9,40.8,1847],["Seattle",-122.3,47.6,1851],["Denver",-105,39.7,1858],
+["Minneapolis",-93.3,45,1867],["Phoenix",-112.1,33.4,1868],["Oklahoma City",-97.5,35.5,1889],
+["Brasília",-47.9,-15.8,1960]
 ];
 
 // Timeline event ticks (v1 hooks for a richer events layer later)
@@ -394,9 +414,9 @@ domainCells.forEach((i, k) => {
 
 // Precompute gaussian splat targets for every region weight point
 const SIGMA = 3.2, RAD = 9;
-const SPLATS = []; // {ri, pw, cells:[], w:[]}
+const SPLATS = []; // {ri, pw, y0, cells:[], w:[]}
 REGIONS.forEach((reg, ri) => {
-  for (const [lon, lat, pw] of reg.pts) {
+  for (const [lon, lat, pw, y0] of reg.pts) {
     const cgx = Math.floor((lon + 180) / 2), cgy = Math.floor((90 - lat) / 2);
     const cells = [], w = [];
     let sum = 0;
@@ -412,9 +432,20 @@ REGIONS.forEach((reg, ri) => {
       }
     }
     for (let k = 0; k < w.length; k++) w[k] /= (sum || 1);
-    SPLATS.push({ ri, pw, cells, w });
+    SPLATS.push({ ri, pw, y0: y0 || 0, cells, w });
   }
 });
+// weight of a point at a given year: 0 before founding, ramping to full over 60 years
+function ptWeight(sp, year) {
+  if (!sp.y0) return sp.pw;
+  return sp.pw * Math.min(1, Math.max(0, (year - sp.y0) / 60));
+}
+// per-region sum of active weights, so region population is distributed, not multiplied
+const regWeightSum = new Float32Array(REGIONS.length);
+function buildRegWeights(year) {
+  regWeightSum.fill(0);
+  for (const sp of SPLATS) regWeightSum[sp.ri] += ptWeight(sp, year);
+}
 
 /* ============ interpolation & fields ============ */
 function interp(arr, year) {
@@ -433,9 +464,12 @@ let densMax = 1;
 
 function buildFields(year) {
   densF.fill(0); shareNum.fill(0);
+  buildRegWeights(year);
   for (const sp of SPLATS) {
+    const pw = ptWeight(sp, year);
+    if (pw <= 0) continue;
     const reg = REGIONS[sp.ri];
-    const pop = interp(reg.p, year) * sp.pw;
+    const pop = interp(reg.p, year) * pw / regWeightSum[sp.ri];
     const sh = interp(reg.s, year);
     const { cells, w } = sp;
     for (let k = 0; k < cells.length; k++) {
@@ -469,7 +503,9 @@ function buildPressure(year) {
   for (const sp of SPLATS) {
     const pr = pressureOf(sp.ri, year);
     if (pr <= 0) continue;
-    const pop = interp(REGIONS[sp.ri].p, year) * sp.pw;
+    const pw = ptWeight(sp, year);
+    if (pw <= 0) continue;
+    const pop = interp(REGIONS[sp.ri].p, year) * pw / regWeightSum[sp.ri];
     const { cells, w } = sp;
     for (let k = 0; k < cells.length; k++) numer[cells[k]] += pop * w[k] * pr;
   }
@@ -481,7 +517,7 @@ const SIM_DT = 2, SNAP_EVERY = 8;
 const NSNAP = Math.floor(YSPAN / SNAP_EVERY) + 2;
 const snaps = new Uint8Array(NSNAP * NCELL);
 let simReady = false, simToken = 0;
-const params = { growth: 1, spread: 1, urban: 0.55, decline: 1, blend: 0.8 };
+const params = { growth: 1, spread: 1, urban: 0.55, decline: 1, blend: 0.8, mode: 'pop' };
 const routeCells = ROUTES.map(r => [cellOf(r[0], r[1]), cellOf(r[2], r[3]), r[4]]);
 
 function runSimulation() {
@@ -631,8 +667,12 @@ function draw(year) {
     if (LAND[i] && densF[i] > 1e-6) {
       // blend in log-intensity space so a small sim weight reads as a faint overlay, not a dark blob
       const it = blend * logT(histShare[i]) + (1 - blend) * logT(simShareAt(i, year));
-      // saturating density weight: cells above ~12% of the world max read at full strength
-      v = it * Math.pow(Math.min(1, densF[i] / (0.12 * densMax)), urb);
+      // population-weighted: saturating density factor (cells above ~12% of world max read full strength)
+      // per capita: share alone wherever meaningfully inhabited (soft gate keeps empty deserts dark)
+      const densFac = params.mode === 'percap'
+        ? Math.min(1, densF[i] / (0.02 * densMax))
+        : Math.pow(Math.min(1, densF[i] / (0.12 * densMax)), urb);
+      v = it * densFac;
     }
     const q = Math.min(255, Math.round(v * 255)) * 4;
     const o = i * 4;
@@ -717,6 +757,10 @@ let speed = 25;
     playing = q.get('play') === '1';
   }
   if (q.get('theme')) document.documentElement.setAttribute('data-theme', q.get('theme'));
+  if (q.get('mode') === 'percap') {
+    params.mode = 'percap';
+    document.getElementById('modeSel').value = 'percap';
+  }
 }
 const playBtn = document.getElementById('playBtn');
 const yearBig = document.getElementById('yearBig');
@@ -745,6 +789,13 @@ playBtn.addEventListener('click', () => {
   playing = !playing; needsRedraw = true;
 });
 document.getElementById('speedSel').addEventListener('change', e => speed = +e.target.value);
+document.getElementById('modeSel').addEventListener('change', e => {
+  params.mode = e.target.value;
+  document.getElementById('legendNote').textContent = params.mode === 'percap'
+    ? 'log-scaled; per capita, brightness ignores population size where inhabited'
+    : 'log-scaled; brightness also weights population density';
+  needsRedraw = true;
+});
 
 let scrubbing = false;
 function scrubTo(clientX) {
