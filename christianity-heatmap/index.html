@@ -57,11 +57,12 @@
   .year-overlay {
     position: absolute; top: 14px; left: 18px; pointer-events: none;
     font-size: 44px; font-weight: 700; letter-spacing: -0.02em; line-height: 1;
-    color: var(--ink); opacity: 0.92;
+    color: var(--ink); opacity: 0.92; transform-origin: top left;
   }
   .year-overlay small { display: block; font-size: 11.5px; font-weight: 500; color: var(--ink-2); margin-top: 5px; letter-spacing: 0; }
   .sim-status {
     position: absolute; bottom: 10px; left: 18px; font-size: 11px; color: var(--muted); pointer-events: none;
+    transform-origin: bottom left;
   }
   .tooltip {
     position: absolute; pointer-events: none; display: none; z-index: 5;
@@ -644,6 +645,34 @@ function buildPaths() {
     landPath.closePath(); coastPath.closePath();
   }
 }
+// HUD pinning (#5): keep the year/era readout and sim status inside the VISIBLE part of the
+// map under pinch zoom and page scroll, counter-scaled to constant apparent size.
+function updateHUD() {
+  const vv = window.visualViewport;
+  const wrap = canvas.parentElement.getBoundingClientRect();
+  const vl = vv ? vv.offsetLeft : 0, vt = vv ? vv.offsetTop : 0;
+  const vh = vv ? vv.height : window.innerHeight;
+  const sc = vv ? 1 / vv.scale : 1;
+  const pad = 14;
+  const hud = document.querySelector('.year-overlay');
+  const status = document.getElementById('simStatus');
+  const x = Math.min(Math.max(wrap.left, vl), wrap.right - 140 * sc) + pad;
+  const y = Math.min(Math.max(wrap.top, vt), wrap.bottom - 90 * sc) + pad;
+  hud.style.left = (x - wrap.left) + 'px';
+  hud.style.top = (y - wrap.top) + 'px';
+  hud.style.transform = `scale(${sc})`;
+  const by = Math.max(Math.min(wrap.bottom, vt + vh) - pad, wrap.top + pad + 60 * sc);
+  status.style.bottom = 'auto';
+  status.style.left = (x - wrap.left) + 'px';
+  status.style.top = (by - wrap.top - 14 * sc) + 'px';
+  status.style.transform = `scale(${sc})`;
+}
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', updateHUD);
+  visualViewport.addEventListener('scroll', updateHUD);
+}
+window.addEventListener('scroll', updateHUD, { passive: true });
+
 function resize() {
   const wrap = canvas.parentElement;
   DPR = Math.min(2, window.devicePixelRatio || 1);
@@ -653,6 +682,7 @@ function resize() {
   canvas.width = Math.round(cssW * DPR); canvas.height = Math.round(cssH * DPR);
   W = canvas.width; H = canvas.height;
   buildPaths();
+  updateHUD();
   needsRedraw = true;
 }
 
