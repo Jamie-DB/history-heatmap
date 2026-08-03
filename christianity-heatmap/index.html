@@ -1340,14 +1340,92 @@ SITES.push(
   S('jamesZ', 'James executed', 35.25, 31.75, 44, 'scripture', 'deaths', 'Deaths', NARR_C.death,
     'first of the Twelve to die, Acts 12:2')
 );
+
+/* --- Tradition tier and supporting layers (issue #17) --- */
+// Dashed and hollow: attested by early church tradition rather than by scripture.
+JOURNEYS.push(
+  J('thomas', 'Thomas', 'apostles', 'Apostles beyond', 'tradition', NARR_C.other, [
+    L(35.23,31.78,'Jerusalem',40), L(44.40,33.30,'Mesopotamia',43), L(51.42,35.69,'Parthia',45),
+    L(66.96,39.65,'Bactria',48), L(72.80,19.00,'the Indus',50), L(76.20,10.22,'Muziris',52),
+    L(80.28,13.03,'Mylapore',68) ]),
+  J('mark', 'Mark', 'apostles', 'Apostles beyond', 'tradition', '#7a5195', [
+    L(35.23,31.78,'Jerusalem',44), L(33.90,35.18,'Cyprus',46), L(29.92,31.20,'Alexandria',49) ]),
+  J('andrew', 'Andrew', 'apostles', 'Apostles beyond', 'tradition', '#356e8f', [
+    L(35.23,31.78,'Jerusalem',40), L(29.00,41.02,'Byzantium',50), L(33.50,45.30,'Scythia',55),
+    L(21.73,38.25,'Patras',60) ]),
+  J('john', 'John', 'apostles', 'Apostles beyond', 'tradition', '#2f7f6f', [
+    L(35.23,31.78,'Jerusalem',44), L(27.34,37.95,'Ephesus',67), L(26.55,37.31,'Patmos',95),
+    L(27.34,37.95,'Ephesus',97) ]),
+  J('bartholomew', 'Bartholomew', 'apostles', 'Apostles beyond', 'tradition', '#9c6b30', [
+    L(35.23,31.78,'Jerusalem',45), L(44.50,40.18,'Armenia',60) ]),
+  J('matthew', 'Matthew', 'apostles', 'Apostles beyond', 'tradition', '#8a7f2f', [
+    L(35.23,31.78,'Jerusalem',42), L(38.70,14.10,'Ethiopia',55) ]),
+  J('jude', 'Jude & Simon', 'apostles', 'Apostles beyond', 'tradition', '#a1553f', [
+    L(35.23,31.78,'Jerusalem',45), L(44.40,33.30,'Mesopotamia',52), L(51.68,32.65,'Persia',60) ])
+);
+[['Peter martyred',12.45,41.90,65,'crucified in Rome under Nero'],
+ ['Paul martyred',12.44,41.86,66,'beheaded on the Ostian Way'],
+ ['Barnabas martyred',33.90,35.18,61,'at Salamis, Cyprus'],
+ ['Andrew martyred',21.73,38.25,65,'at Patras'],
+ ['Mark martyred',29.92,31.20,68,'dragged through Alexandria'],
+ ['Bartholomew martyred',44.50,40.18,68,'in Armenia'],
+ ['Thomas martyred',80.28,13.03,72,'at Mylapore'],
+ ['Philip martyred',29.13,37.93,80,'at Hierapolis'],
+ ['Timothy martyred',27.34,37.95,97,'at Ephesus']].forEach(([n, lon, lat, y, note]) =>
+  SITES.push(S('tr_' + n, n, lon, lat, y, 'tradition', 'deaths', 'Deaths', NARR_C.death, note)));
+SITES.push(
+  // Josephus records this one, so it is attested history but not scripture
+  S('jamesJ', 'James the Just', 35.19, 31.83, 62, 'historical', 'deaths', 'Deaths', NARR_C.death,
+    'thrown from the Temple; recorded by Josephus'),
+  // the exception that proves the rule: the only apostle tradition says died of old age
+  S('johnDies', 'John dies at Ephesus', 27.30, 37.99, 100, 'tradition', 'deaths', 'Deaths',
+    '#2f7f6f', 'the only apostle not martyred')
+);
+
+// Pentecost, Acts 2:9-11. The list of nations present is effectively a map of the
+// first-century Jewish diaspora, so the text itself seeds the spread.
+[['Parthians',53.7,33.5],['Medes',48.5,35.5],['Elamites',48.7,32.2],['Mesopotamia',44.4,33.3],
+ ['Judea',35.2,31.8],['Cappadocia',35.5,38.7],['Pontus',36.5,41.0],['Asia',27.3,38.0],
+ ['Phrygia',30.5,38.6],['Pamphylia',30.9,36.9],['Egypt',31.2,30.0],['Cyrene',21.9,32.8],
+ ['Rome',12.5,41.9],['Crete',25.1,35.3],['Arabia',44.1,25.0]].forEach(([n, lon, lat]) =>
+  SITES.push(S('pent_' + n, n, lon, lat, 33, 'scripture', 'pentecost', 'Pentecost nations', '#c2410c')));
+
+// Infrastructure: the reason the routes go where they go. Off by default.
+JOURNEYS.push(
+  { id: 'viaEgnatia', mode: 'apostolic', src: 'infra', color: '#9ca3af', group: 'roads',
+    groupLabel: 'Roman roads', legs: [
+    L(19.45,41.32,'Dyrrachium',0), L(20.78,40.72,'Lychnidos',0), L(22.94,40.64,'Thessalonica',0),
+    L(24.29,41.01,'Philippi',0), L(26.53,40.61,'Byzantium road',0) ] },
+  { id: 'viaAppia', mode: 'apostolic', src: 'infra', color: '#9ca3af', group: 'roads',
+    groupLabel: 'Roman roads', legs: [
+    L(12.50,41.90,'Rome',0), L(12.80,41.58,'Three Taverns',0), L(13.60,41.22,'Formia',0),
+    L(14.28,40.82,'Puteoli',0), L(15.55,40.64,'Venusia',0), L(17.24,40.47,'Tarentum',0),
+    L(18.17,40.35,'Brundisium',0) ] },
+  { id: 'grainRoute', mode: 'apostolic', src: 'infra', color: '#9ca3af', group: 'roads',
+    groupLabel: 'Roman roads', legs: [
+    L(29.92,31.20,'Alexandria',0), L(25.14,35.34,'Crete',0), L(15.29,37.07,'Syracuse',0),
+    L(14.28,40.82,'Puteoli',0) ] }
+);
+// Diaspora synagogues: Paul went to the synagogue first in every city, which is why his
+// routes look like this. The quiet explanation for the shape of the whole layer.
+[['Damascus',36.30,33.51],['Antioch',36.20,36.20],['Salamis',33.90,35.18],
+ ['Pisidian Antioch',31.19,38.31],['Iconium',32.48,37.87],['Ephesus',27.34,37.95],
+ ['Thessalonica',22.94,40.64],['Berea',22.19,40.52],['Athens',23.73,37.98],
+ ['Corinth',22.93,37.94],['Rome',12.50,41.90],['Alexandria',29.92,31.20],
+ ['Cyrene',21.90,32.80],['Sardis',28.04,38.49],['Babylon',44.42,32.54]].forEach(([n, lon, lat]) =>
+  SITES.push(S('syn_' + n, '', lon, lat, 30, 'infra', 'synagogues', 'Synagogue network', '#b08968')));
 const narrativeOn = {};            // group id -> bool, driven by the toggle panel
 let showTradition = true;
 
 const SRC_STYLE = {
-  scripture: { dash: [],       width: 2.0, fill: true },
-  historical:{ dash: [7, 3],   width: 1.7, fill: 'ring' },
-  tradition: { dash: [3.5, 4], width: 1.6, fill: false }
+  scripture: { dash: [],       width: 2.0, fill: true,   alpha: 0.9 },
+  historical:{ dash: [7, 3],   width: 1.7, fill: 'ring', alpha: 0.9 },
+  tradition: { dash: [3.5, 4], width: 1.6, fill: false,  alpha: 0.85 },
+  infra:     { dash: [2, 3],   width: 1.0, fill: false,  alpha: 0.45 }  // roads, synagogues
 };
+// context layers stay off until asked for; they explain the routes rather than tell the story
+narrativeOn.roads = false;
+narrativeOn.synagogues = false;
 function srcVisible(src) { return src !== 'tradition' || showTradition; }
 function groupOn(g) { return narrativeOn[g] !== false; }
 
@@ -1387,7 +1465,7 @@ function drawNarrative(y) {
     ctx.setLineDash(st.dash.map(d => d * DPR * k));
     ctx.lineWidth = st.width * DPR * k;
     ctx.strokeStyle = j.color;
-    ctx.globalAlpha = 0.9;
+    ctx.globalAlpha = st.alpha;
     ctx.beginPath();
     ctx.moveTo(px(pr.pts[0][0]), py(pr.pts[0][1]));
     for (let i = 1; i < pr.pts.length; i++) ctx.lineTo(px(pr.pts[i][0]), py(pr.pts[i][1]));
@@ -1410,9 +1488,11 @@ function drawNarrative(y) {
     ctx.arc(px(s.lon), py(s.lat), r, 0, 7);
     ctx.lineWidth = 1.6 * DPR * k;
     ctx.strokeStyle = s.color || ink2;
-    if (st.fill === true) { ctx.fillStyle = s.color || ink2; ctx.globalAlpha = 0.9; ctx.fill(); }
-    else { ctx.globalAlpha = 0.9; ctx.stroke(); if (st.fill === 'ring') { ctx.beginPath(); ctx.arc(px(s.lon), py(s.lat), r * 0.4, 0, 7); ctx.fillStyle = s.color || ink2; ctx.fill(); } }
-    if (flare > 0) {                             // expanding burst, same vocabulary as #10
+    ctx.setLineDash(s.src === 'infra' ? [] : st.dash.map(d => d * DPR * k));
+    if (st.fill === true) { ctx.fillStyle = s.color || ink2; ctx.globalAlpha = st.alpha; ctx.fill(); }
+    else { ctx.globalAlpha = st.alpha; ctx.stroke(); if (st.fill === 'ring') { ctx.beginPath(); ctx.arc(px(s.lon), py(s.lat), r * 0.4, 0, 7); ctx.fillStyle = s.color || ink2; ctx.fill(); } }
+    ctx.setLineDash([]);
+    if (flare > 0 && s.src !== 'infra') {         // expanding burst, same vocabulary as #10
       ctx.beginPath();
       ctx.arc(px(s.lon), py(s.lat), (5 + 22 * (1 - flare)) * DPR * k, 0, 7);
       ctx.globalAlpha = 0.5 * flare;
