@@ -79,6 +79,20 @@
     position: absolute; bottom: 10px; left: 18px; font-size: 11px; color: var(--muted); pointer-events: none;
     transform-origin: bottom left;
   }
+  /* running population tally (issue #11): legend-sized health bars, screen space */
+  .pop-hud {
+    position: absolute; left: 18px; top: 50%; pointer-events: none;
+    transform-origin: left center; display: grid; gap: 5px;
+  }
+  .pop-row { display: grid; grid-template-columns: 150px auto; align-items: center; gap: 7px; }
+  .pop-track {
+    position: relative; height: 9px; border-radius: 5px;
+    background: var(--grid); border: 1px solid var(--border); overflow: hidden;
+  }
+  .pop-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 5px 0 0 5px; }
+  .pop-num { font-size: 10.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pop-name { font-size: 9.5px; color: var(--muted); letter-spacing: 0.01em; margin-bottom: 1px; }
+  @media (max-width: 700px) { .pop-hud { display: none; } }
   .tooltip {
     position: absolute; pointer-events: none; display: none; z-index: 5;
     background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
@@ -164,6 +178,20 @@
     <canvas id="map"></canvas>
     <div class="year-overlay"><span id="yearBig">AD 33</span><small id="yearSub">Pentecost, Jerusalem</small></div>
     <div class="sim-status" id="simStatus"></div>
+    <div class="pop-hud" id="popHud">
+      <div>
+        <div class="pop-name">Est. world population</div>
+        <div class="pop-row"><div class="pop-track"><div class="pop-fill" id="popFillW"></div></div><span class="pop-num" id="popNumW">–</span></div>
+      </div>
+      <div>
+        <div class="pop-name">Christians</div>
+        <div class="pop-row"><div class="pop-track"><div class="pop-fill" id="popFillC"></div></div><span class="pop-num" id="popNumC">–</span></div>
+      </div>
+      <div>
+        <div class="pop-name">Muslims</div>
+        <div class="pop-row"><div class="pop-track"><div class="pop-fill" id="popFillM"></div></div><span class="pop-num" id="popNumM">–</span></div>
+      </div>
+    </div>
     <div class="tooltip" id="tooltip"></div>
     <button class="reset-view" id="resetView" hidden>Reset view</button>
     <button class="fs-btn" id="fsBtn" title="Fill the window">&#x26F6;</button>
@@ -1069,6 +1097,14 @@ function updateHUD() {
   status.style.left = (x - wrap.left) + 'px';
   status.style.top = (by - wrap.top - 14 * sc) + 'px';
   status.style.transform = `scale(${sc})`;
+  // population tally: same visible-viewport pinning, vertically centered on what you can see
+  const pop = document.getElementById('popHud');
+  if (pop) {
+    const cy = Math.min(Math.max(wrap.top + 60 * sc, vt + vh / 2), wrap.bottom - 60 * sc);
+    pop.style.left = (x - wrap.left) + 'px';
+    pop.style.top = (cy - wrap.top) + 'px';
+    pop.style.transform = `scale(${sc}) translateY(-50%)`;
+  }
 }
 if (window.visualViewport) {
   visualViewport.addEventListener('resize', updateHUD);
@@ -1347,9 +1383,53 @@ function eraLabel(y) {
   for (const e of EVENTS) if (e[0] <= y) best = e;
   return best[1] + ', ' + (best[0] < 100 ? 'AD ' + best[0] : best[0]);
 }
+/* ============ running population tally (issue #11) ============ */
+// Sums of the anchor data: world = sum p, Christian = sum p*s, Muslim = sum p*si (millions).
+// City overlays contribute their own p, a small known double count against the base regions,
+// consistent with how the heat layer treats them.
+function worldTotals(y) {
+  let w = 0, c = 0, m = 0;
+  for (const reg of REGIONS) {
+    const p = interp(reg.p, y);
+    if (p <= 0) continue;
+    w += p; c += p * interp(reg.s, y); m += p * interp(reg.si, y);
+  }
+  return { w, c, m };
+}
+const POP_MAX = worldTotals(Y1).w;
+// sqrt scale: on a linear scale the first millennium (~250M against 8B) is an invisible sliver
+const popScale = v => Math.max(0, Math.min(1, Math.sqrt(v / POP_MAX)));
+function fmtPop(mil) {
+  if (mil >= 1000) return (mil / 1000).toFixed(mil >= 10000 ? 1 : 2) + 'B';
+  if (mil >= 1) return Math.round(mil) + 'M';
+  return Math.round(mil * 1000) + 'k';
+}
+const popEls = {
+  w: [document.getElementById('popFillW'), document.getElementById('popNumW')],
+  c: [document.getElementById('popFillC'), document.getElementById('popNumC')],
+  m: [document.getElementById('popFillM'), document.getElementById('popNumM')]
+};
+function updatePopHud(y) {
+  const t = worldTotals(y);
+  const shareOf = v => t.w > 0 ? ' (' + (v / t.w * 100).toFixed(v / t.w < 0.01 ? 1 : 0) + '%)' : '';
+  popEls.w[0].style.width = (popScale(t.w) * 100) + '%';
+  popEls.w[1].textContent = fmtPop(t.w);
+  popEls.c[0].style.width = (popScale(t.c) * 100) + '%';
+  popEls.c[1].textContent = fmtPop(t.c) + shareOf(t.c);
+  popEls.m[0].style.width = (popScale(t.m) * 100) + '%';
+  popEls.m[1].textContent = fmtPop(t.m) + shareOf(t.m);
+}
+function stylePopBars() {
+  // track the heat ramps: mid-ramp stops read well against both themes
+  popEls.w[0].style.background = cssVar('--muted');
+  popEls.c[0].style.background = isDark() ? RAMP[3] : RAMP[8];
+  popEls.m[0].style.background = isDark() ? RAMP_RED[3] : RAMP_RED[8];
+}
+
 function updateChrome() {
   yearBig.textContent = year < 1000 ? 'AD ' + Math.round(year) : String(Math.round(year));
   yearSub.textContent = eraLabel(year);
+  updatePopHud(year);
   const p = yearToPos(year) * 100;
   tlFill.style.width = p + '%';
   tlHandle.style.left = p + '%';
@@ -1411,9 +1491,9 @@ bind('pBlend', 'oBlend', 'blend', v => Math.round(v * 100) + '% history', false)
 document.getElementById('themeBtn').addEventListener('click', () => {
   const cur = isDark() ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', cur);
-  buildLUT(); buildLegend(); needsRedraw = true;
+  buildLUT(); buildLegend(); stylePopBars(); needsRedraw = true;
 });
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { buildLUT(); buildLegend(); needsRedraw = true; });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { buildLUT(); buildLegend(); stylePopBars(); needsRedraw = true; });
 
 /* ============ pan & zoom (issue #6, phase A) ============ */
 const resetBtn = document.getElementById('resetView');
@@ -1605,6 +1685,7 @@ function frame(t) {
 
 buildLUT();
 buildLegend();
+stylePopBars();
 resize();
 onCamChange();   // reflect a ?view= deep link in the reset button and cursor
 if (new URLSearchParams(location.search).get('fs') === '1') toggleFs();
