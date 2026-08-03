@@ -14,7 +14,8 @@ An interactive, self-contained animation of the estimated Christian and Muslim s
 - **Heat layer**: log-scaled Christian share of local population, weighted by population density, on a 2° world grid. A single-hue blue ramp; brighter = larger share (in dark mode) or darker (in light mode).
 - **Timeline**: non-linear (early centuries get extra width). Ticks mark era events (Edict of Milan, Great Schism, Reformation, ...), which are v1 hooks for a future events layer.
 - **City markers**: appear at their moment (Jerusalem 33, Constantinople 330, Kyiv 988, Manila 1571, ...), with labels that fade after a few decades.
-- **Deep links**: `index.html?year=1100&theme=dark&play=1&mode=percap&layers=cm` (`layers=c`, `m`, or `cm`).
+- **Pan & zoom**: scroll or pinch to zoom toward the cursor (up to 24x), drag to pan, double-click to zoom in, "Reset view" to snap back. Past 3x zoom the coastline switches from Natural Earth 110m to 50m detail (with lakes), and city labels stay visible instead of fading. The camera is captured in the URL as `?view=lon,lat,zoom`.
+- **Deep links**: `index.html?year=1100&theme=dark&play=1&mode=percap&layers=cm&view=-83.1,42.3,16` (`layers=c`, `m`, or `cm`).
 - **Display modes**: "Population-weighted" (default) scales brightness by where the people are; "Per capita" renders share alone wherever meaningfully inhabited, so sparse-but-devout regions (the American Plains, the Bible Belt) read at full strength.
 - **Time-varying settlement**: weight points may carry a founding year (`[lon, lat, w, year]`); they ramp in over 60 years and each region's population is distributed across its currently active points. The US interior fills in progressively from 1624 (New York) to 1889 (Oklahoma City).
 
@@ -47,4 +48,4 @@ Sim-affecting sliders trigger a ~1s background recompute (progress shown on the 
 
 ## Data provenance
 
-Coastlines: Natural Earth 110m land (public domain), preprocessed to compact polylines and a 2° land mask, embedded in the HTML. All historical figures are order-of-magnitude estimates curated for this toy; do not cite them.
+Coastlines: Natural Earth 110m land (world view) and 50m land + lakes (zoomed view), public domain, preprocessed to compact polylines (the 50m set delta-encoded in 0.01° integer units) and a 2° land mask, embedded in the HTML. All historical figures are order-of-magnitude estimates curated for this toy; do not cite them.
