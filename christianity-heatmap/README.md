@@ -9,6 +9,18 @@ An interactive, self-contained animation of the estimated Christian and Muslim s
 - City-scale overlay regions carry modern diaspora demographics honestly at true footprints: Wayne County and Dearborn, Greater Paris, the Ruhr, Greater London, plus ~16 post-1975 migration hotspots (Hamtramck, Paterson, Cedar-Riverside, Bridgeview, Brussels, Marseille, Roubaix, Seine-Saint-Denis, Birmingham, Bradford, Luton, Tower Hamlets, Rotterdam, Neukölln, Malmö, Vienna). Scrubbing 1950 to 2026 shows the migration waves ignite: guest workers in the 1960s, family reunification from ~1975, refugee waves in the 1990s. Shares from Pew and the UK 2021 census; France bans religious censuses, so French figures are softer estimates.
 - The simulation layer is loosely tethered to history (per-cell carrying capacity of 4x the historical share plus 5%), so the model chooses where and when faiths spread while history bounds how much; crank the sliders to fight the tether.
 
+## Views
+
+The **View** control switches between three mutually exclusive visualizations that share the map, camera, and timeline but differ in era, pace, and layers.
+
+- **World demographics** (default): the heatmap described below, AD 33 to 2026. It can also carry an optional church history overlay: five councils, nine persecutions, and ten missionary journeys from Patrick in 432 to Hudson Taylor in 1854, all drawn with the same engine as Paul's, which is the point of the visual rhyme. Off by default.
+- **Apostolic Age**: AD 30 to 100 at a readable pace, with the demographic model set aside. Jesus's movements, Paul's four journeys leg by leg (including the Malta shipwreck), Barnabas forking off to Cyprus, Peter, Philip, the seven churches of Revelation, epistle destinations, the martyrdoms, and Pentecost igniting the fifteen nations of Acts 2:9-11 across the diaspora. Two context layers, off by default: the Roman roads and the synagogue network, the latter being what makes Paul's routing legible as strategy rather than wandering.
+- **Old Testament**: c. 2000 BC to AD 33. Abraham out of Ur, Jacob into Egypt, the Exodus, the exiles to Nineveh and Babylon, and the return. Schematic by design, and the dating is contested throughout, the Exodus especially (early c. 1446 vs late c. 1260); these follow the traditional early chronology.
+
+**Provenance is visible**: solid lines and filled markers are scripture-attested, fine dashes with a ringed marker are historically attested but not biblical (James the Just's death, recorded by Josephus), and dashes with hollow markers are church tradition (Thomas in India, Peter at Rome, most martyrdom sites). A `tradition` checkbox hides that tier entirely, and the map visibly thins when you do.
+
+Deep links: `?mode=apostolic`, `?bib=paul,deaths` to pick overlay groups, `?tradition=0`.
+
 ## What you're looking at
 
 - **Heat layer**: log-scaled Christian share of local population, weighted by population density, evaluated analytically over the current viewport (the anchor data lives as gaussian weight points, not pixels). A single-hue blue ramp; brighter = larger share (in dark mode) or darker (in light mode).

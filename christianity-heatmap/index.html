@@ -211,6 +211,7 @@
     <select id="modePicker">
       <option value="main" selected>World demographics</option>
       <option value="apostolic">Apostolic Age</option>
+      <option value="ot">Old Testament</option>
     </select>
     <span class="ctl-label">Speed</span>
     <select id="speedSel">
@@ -1247,7 +1248,11 @@ function paintMap(heatRect) {
   ctx.restore();
 }
 
-function drawBase() { paintMap(null); drawCities(year); drawNarrative(year); }
+function drawBase() {
+  paintMap(null);
+  if (M().layers.cities) drawCities(year); else narrativeLabelBoxes = [];
+  drawNarrative(year);
+}
 
 /* ============ journey & annotation engine (issue #15) ============ */
 // Shared primitive for narrative overlays: routes that draw leg by leg as the playhead
@@ -1439,6 +1444,42 @@ const CH_SITE = (n, lon, lat, y, kind, note) => SITES.push(
  ['Polycarp',27.14,38.42,155,'at Smyrna'],['Martyrs of Lyon',4.83,45.76,177,''],
  ['Perpetua',10.32,36.85,203,'at Carthage'],['Decian persecution',12.50,41.90,250,'empire-wide'],
  ['Diocletian',12.50,41.90,303,'the Great Persecution']].forEach(([n,lo,la,y,note]) => CH_SITE(n,lo,la,y,'pers',note));
+/* --- Old Testament prologue (issue #13) --- */
+// Dating is contested throughout; these follow the traditional early chronology and are
+// schematic by design. Flagged in the mode subtitle and the README.
+const OJ = (id, who, group, groupLabel, color, legs) =>
+  ({ id, who, mode: 'ot', src: 'scripture', color, group, groupLabel, legs });
+JOURNEYS.push(
+  OJ('abraham','Abraham','patriarchs','Patriarchs','#8b5cf6',[
+    L(46.10,30.96,'Ur',-2000), L(39.03,36.86,'Haran',-1960), L(35.28,32.20,'Shechem',-1925),
+    L(35.21,31.93,'Bethel',-1920), L(31.24,30.05,'Egypt',-1915), L(35.10,31.53,'Hebron',-1900),
+    L(34.80,31.25,'Beersheba',-1890)]),
+  OJ('jacob','Jacob','patriarchs','Patriarchs','#a78bfa',[
+    L(34.80,31.25,'Beersheba',-1885), L(39.03,36.86,'Haran',-1875), L(35.62,32.19,'Peniel',-1860),
+    L(35.28,32.20,'Shechem',-1855), L(31.83,30.80,'Goshen',-1850)]),
+  OJ('exodus','the Exodus','exodus','Exodus & conquest','#c2410c',[
+    L(31.83,30.80,'Rameses',-1446), L(32.55,29.97,'the sea crossing',-1445.9),
+    L(33.97,28.54,'Sinai',-1445), L(34.42,30.65,'Kadesh-barnea',-1444),
+    L(35.60,30.32,'the wilderness',-1410), L(35.74,31.87,'the Jordan',-1406),
+    L(35.44,31.87,'Jericho',-1405), L(35.29,32.05,'Shiloh',-1400)]),
+  OJ('exileN','Assyrian exile','exiles','Exiles & return','#b3322c',[
+    L(35.19,32.28,'Samaria',-722), L(43.15,36.36,'Nineveh',-720)]),
+  OJ('exileS','Babylonian exile','exiles','Exiles & return','#b3322c',[
+    L(35.23,31.78,'Jerusalem',-586), L(44.42,32.54,'Babylon',-583)]),
+  OJ('return','the Return','exiles','Exiles & return','#2a78d6',[
+    L(44.42,32.54,'Babylon',-538), L(35.23,31.78,'Jerusalem',-536)])
+);
+[['Ur',46.10,30.96,-2000,'Abraham leaves'],['Haran',39.03,36.86,-1960,''],
+ ['Sinai',33.97,28.54,-1445,'the Law'],['Shiloh',35.29,32.05,-1400,'the tabernacle'],
+ ['Jerusalem',35.23,31.78,-1003,"David's capital"],['the Temple',35.24,31.78,-966,'Solomon'],
+ ['Samaria',35.19,32.28,-931,'northern capital'],['Nineveh',43.15,36.36,-722,'Assyria deports Israel'],
+ ['Babylon',44.42,32.54,-586,'Judah carried off'],['Second Temple',35.24,31.78,-516,''],
+ ['Modiin',35.01,31.89,-167,'the Maccabean revolt'],['Rome takes Judea',35.23,31.78,-63,'Pompey'],
+ ["Herod's Temple",35.24,31.78,-20,'standing in the gospels']
+].forEach(([n, lon, lat, y, note]) =>
+  SITES.push({ id: 'ot_' + n, name: n, lon, lat, year: y, src: 'scripture', mode: 'ot',
+               group: 'otsites', groupLabel: 'Places', color: '#6b7280', note }));
+
 [['Damascus',36.30,33.51],['Antioch',36.20,36.20],['Salamis',33.90,35.18],
  ['Pisidian Antioch',31.19,38.31],['Iconium',32.48,37.87],['Ephesus',27.34,37.95],
  ['Thessalonica',22.94,40.64],['Berea',22.19,40.52],['Athens',23.73,37.98],
@@ -1728,6 +1769,13 @@ const NT_EVENTS = [   // stub tick set; phase 3 (#16) fills in the apostolic con
   [50,"Jerusalem council"],[53,"3rd journey"],[60,"Paul reaches Rome"],[64,"Fire of Rome"],
   [70,"Fall of Jerusalem"],[95,"Patmos"]
 ];
+// Dates before the monarchy are schematic and disputed; the Exodus especially has early
+// (c. 1446) and late (c. 1260) datings. The sequence is the point, not the precision.
+const OT_EVENTS = [
+  [-2000,"Abraham"],[-1875,"Jacob to Egypt"],[-1446,"Exodus"],[-1406,"Conquest"],
+  [-1010,"David"],[-966,"Temple"],[-931,"Kingdom divides"],[-722,"Samaria falls"],
+  [-586,"Jerusalem falls"],[-538,"Return"],[-167,"Maccabees"],[-63,"Rome"]
+];
 const MODES = {
   main: {
     label: 'World demographics',
@@ -1736,6 +1784,14 @@ const MODES = {
     y0: 33, y1: 2026, tlExp: 0.55, speed: 25,
     ticks: EVENTS, marks: [33, 500, 1000, 1500, 2026],
     layers: { heat: true, cities: true }, hud: { pop: true }
+  },
+  ot: {
+    label: 'Old Testament',
+    title: 'The Old Testament World, c. 2000 BC to AD 33',
+    sub: 'Schematic and heavily contested in its dating, especially the Exodus. The patriarchs, the Exodus, the monarchy, the exiles, and the return, ending where the New Testament begins.',
+    y0: -2100, y1: 33, tlExp: 1, speed: 25,
+    ticks: OT_EVENTS, marks: [-2000, -1500, -1000, -500, 33],
+    layers: { heat: false, cities: false }, hud: { pop: false }
   },
   apostolic: {
     label: 'Apostolic Age',
@@ -1776,7 +1832,7 @@ function buildTimeline() {
     const lab = document.createElement('div');
     lab.className = 'tl-tick-label'; lab.style.left = p + '%';
     lab.style.top = (i % 2) ? '42px' : '31px';
-    lab.textContent = ey + ' ' + label; lab.title = label + ', ' + ey;
+    lab.textContent = fmtYear(ey) + ' ' + label; lab.title = label + ', ' + fmtYear(ey);
     timeline.appendChild(lab);
   });
   for (const yy of m.marks) {
@@ -1846,7 +1902,7 @@ function eraLabel(y) {
   const T = M().ticks;
   let best = T[0];
   for (const e of T) if (e[0] <= y) best = e;
-  return best[1] + ', ' + (best[0] < 100 ? 'AD ' + best[0] : best[0]);
+  return best[1] + ', ' + fmtYear(best[0]);
 }
 /* ============ running population tally (issue #11) ============ */
 // Sums of the anchor data: world = sum p, Christian = sum p*s, Muslim = sum p*si (millions).
