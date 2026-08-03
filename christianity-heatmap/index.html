@@ -1408,6 +1408,37 @@ JOURNEYS.push(
 );
 // Diaspora synagogues: Paul went to the synagogue first in every city, which is why his
 // routes look like this. The quiet explanation for the shape of the whole layer.
+/* --- Church history overlay, main mode (issue #18) --- */
+// Rides on top of the heat layer across the full 33-2026 span rather than becoming its own
+// mode. Off by default. The missionary routes use the same engine as Paul's, which is the
+// point: the visual rhyme across nineteen centuries.
+const MJ = (id, who, src, color, legs) =>
+  ({ id, who, mode: 'main', src, color, group: 'missions', groupLabel: 'Missionary journeys', legs });
+JOURNEYS.push(
+  MJ('patrick','Patrick','historical','#2f7f6f',[L(-3.0,53.2,'Britain',432),L(-6.27,53.35,'Ireland',435),L(-6.66,54.35,'Armagh',445)]),
+  MJ('augustine','Augustine','historical','#2a78d6',[L(12.50,41.90,'Rome',596),L(2.35,48.86,'Gaul',596.5),L(1.08,51.28,'Canterbury',597)]),
+  MJ('boniface','Boniface','historical','#7a5195',[L(-3.53,50.72,'Wessex',716),L(5.12,52.09,'Frisia',719),L(9.50,50.80,'Hesse',723),L(9.94,51.31,'Fritzlar',732)]),
+  MJ('anskar','Anskar','historical','#356e8f',[L(3.20,49.85,'Corbie',826),L(9.94,57.05,'Jutland',827),L(17.62,59.62,'Birka',829),L(9.99,53.55,'Hamburg',831)]),
+  MJ('cyril','Cyril & Methodius','historical','#c2601f',[L(22.94,40.64,'Thessalonica',862),L(29.00,41.02,'Constantinople',862.5),L(17.11,48.15,'Moravia',863)]),
+  MJ('xavier','Francis Xavier','historical','#b3322c',[L(-9.14,38.72,'Lisbon',1541),L(73.83,15.50,'Goa',1542),L(102.25,2.20,'Malacca',1545),L(129.87,32.75,'Kagoshima',1549),L(113.54,22.19,'Shangchuan',1552)]),
+  MJ('ricci','Matteo Ricci','historical','#8a7f2f',[L(113.54,22.19,'Macau',1582),L(113.26,23.13,'Zhaoqing',1583),L(118.78,32.06,'Nanjing',1599),L(116.40,39.90,'Beijing',1601)]),
+  MJ('carey','William Carey','historical','#0f9d8f',[L(-0.13,51.51,'London',1793),L(88.36,22.57,'Calcutta',1793.7),L(88.28,22.75,'Serampore',1800)]),
+  MJ('livingstone','David Livingstone','historical','#9c6b30',[L(-4.03,55.86,'Glasgow',1840),L(18.42,-33.93,'Cape Town',1841),L(25.85,-17.92,'Victoria Falls',1855),L(35.50,-11.30,'Lake Nyasa',1859),L(29.60,-8.90,'Ujiji',1871)]),
+  MJ('taylor','Hudson Taylor','historical','#a1553f',[L(-2.71,52.71,'Barnsley',1853),L(121.47,31.23,'Shanghai',1854),L(120.16,30.29,'Hangzhou',1866),L(111.70,30.70,'inland China',1875)])
+);
+const CH_SITE = (n, lon, lat, y, kind, note) => SITES.push(
+  { id: 'ch_' + n + y, name: n, lon, lat, year: y, src: 'historical', mode: 'main',
+    group: kind === 'council' ? 'councils' : 'persecutions',
+    groupLabel: kind === 'council' ? 'Councils' : 'Persecutions',
+    color: kind === 'council' ? '#4a7c59' : '#b3322c', note });
+[['Council of Jerusalem',35.23,31.78,50,'Acts 15'],['Nicaea',29.72,40.43,325,'the Creed'],
+ ['Constantinople I',29.00,41.02,381,''],['Ephesus',27.34,37.95,431,''],
+ ['Chalcedon',29.02,40.98,451,'']].forEach(([n,lo,la,y,note]) => CH_SITE(n,lo,la,y,'council',note));
+[['Nero',12.50,41.90,64,'Peter and Paul die in this wave'],['Fall of Jerusalem',35.23,31.78,70,''],
+ ['Domitian',12.50,41.90,95,'John exiled to Patmos'],['Ignatius',12.50,41.90,108,'taken from Antioch to Rome'],
+ ['Polycarp',27.14,38.42,155,'at Smyrna'],['Martyrs of Lyon',4.83,45.76,177,''],
+ ['Perpetua',10.32,36.85,203,'at Carthage'],['Decian persecution',12.50,41.90,250,'empire-wide'],
+ ['Diocletian',12.50,41.90,303,'the Great Persecution']].forEach(([n,lo,la,y,note]) => CH_SITE(n,lo,la,y,'pers',note));
 [['Damascus',36.30,33.51],['Antioch',36.20,36.20],['Salamis',33.90,35.18],
  ['Pisidian Antioch',31.19,38.31],['Iconium',32.48,37.87],['Ephesus',27.34,37.95],
  ['Thessalonica',22.94,40.64],['Berea',22.19,40.52],['Athens',23.73,37.98],
@@ -1423,9 +1454,10 @@ const SRC_STYLE = {
   tradition: { dash: [3.5, 4], width: 1.6, fill: false,  alpha: 0.85 },
   infra:     { dash: [2, 3],   width: 1.0, fill: false,  alpha: 0.45 }  // roads, synagogues
 };
-// context layers stay off until asked for; they explain the routes rather than tell the story
-narrativeOn.roads = false;
-narrativeOn.synagogues = false;
+// Groups that stay off until asked for: context layers that explain the routes rather than
+// tell the story, and the main-mode overlays that ride on top of the heat layer.
+for (const g of ['roads', 'synagogues', 'missions', 'councils', 'persecutions'])
+  narrativeOn[g] = false;
 function srcVisible(src) { return src !== 'tradition' || showTradition; }
 function groupOn(g) { return narrativeOn[g] !== false; }
 
@@ -1452,6 +1484,7 @@ function drawNarrative(y) {
   if (!active.length && !sites.length) return;
   const k = 1 / cam.z;                 // screen-constant strokes and radii under zoom
   const ink2 = cssVar('--ink-2');
+  const halo = M().layers.heat ? cssVar('--surface') : null;
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.scale(cam.z, cam.z);
@@ -1462,13 +1495,20 @@ function drawNarrative(y) {
     const pr = journeyProgress(j, y);
     if (!pr || pr.pts.length < 2) continue;
     const st = SRC_STYLE[j.src];
+    ctx.beginPath();
+    ctx.moveTo(px(pr.pts[0][0]), py(pr.pts[0][1]));
+    for (let i = 1; i < pr.pts.length; i++) ctx.lineTo(px(pr.pts[i][0]), py(pr.pts[i][1]));
+    if (halo) {                        // keep routes legible over saturated heat (#18)
+      ctx.setLineDash([]);
+      ctx.strokeStyle = halo;
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = (st.width + 2.4) * DPR * k;
+      ctx.stroke();
+    }
     ctx.setLineDash(st.dash.map(d => d * DPR * k));
     ctx.lineWidth = st.width * DPR * k;
     ctx.strokeStyle = j.color;
     ctx.globalAlpha = st.alpha;
-    ctx.beginPath();
-    ctx.moveTo(px(pr.pts[0][0]), py(pr.pts[0][1]));
-    for (let i = 1; i < pr.pts.length; i++) ctx.lineTo(px(pr.pts[i][0]), py(pr.pts[i][1]));
     ctx.stroke();
     ctx.setLineDash([]);
     if (!pr.done) {                    // leading dot shows direction of travel
@@ -1484,6 +1524,11 @@ function drawNarrative(y) {
     const age = y - s.year;
     const flare = age < 6 ? 1 - age / 6 : 0;     // brief ignition, pure function of year
     const r = (3 + 5 * flare) * DPR * k;
+    if (halo) {
+      ctx.beginPath();
+      ctx.arc(px(s.lon), py(s.lat), r + 1.6 * DPR * k, 0, 7);
+      ctx.fillStyle = halo; ctx.globalAlpha = 0.6; ctx.fill();
+    }
     ctx.beginPath();
     ctx.arc(px(s.lon), py(s.lat), r, 0, 7);
     ctx.lineWidth = 1.6 * DPR * k;
@@ -1519,8 +1564,14 @@ function narrativeLabels(y, active, sites) {
       const lx = x + 6 * DPR, ly = yy + dy;
       if (boxes.some(b => lx < b.x + b.w && lx + w > b.x && ly < b.y + b.h && ly + h > b.y)) continue;
       boxes.push({ x: lx, y: ly, w, h });
-      ctx.fillStyle = color;
       ctx.globalAlpha = 0.95;
+      if (M().layers.heat) {           // halo so labels survive dark heat (#18)
+        ctx.lineWidth = 3 * DPR;
+        ctx.strokeStyle = cssVar('--surface');
+        ctx.lineJoin = 'round';
+        ctx.strokeText(label, lx, ly);
+      }
+      ctx.fillStyle = color;
       ctx.fillText(label, lx, ly);
       ctx.globalAlpha = 1;
       return;
