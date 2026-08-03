@@ -5,7 +5,7 @@ An interactive, self-contained animation of the estimated Christian and Muslim s
 ## Layers
 
 - **Christianity** (blue ramp) and **Islam** (red ramp), individually toggleable.
-- Where both faiths hold at least 2% of a cell's population, the ramps blend into purple co-presence (al-Andalus, Ottoman Balkans, the Sahel, Nigeria, modern Western Europe). Below that threshold a cell renders winner-take-all, so unmixed frontiers (post-1492 Gibraltar, modern Anatolia) stay crisp.
+- A cell renders purple co-presence only when both faiths hold at least 2% of its population AND the larger share is within a ratio band of the smaller; outside the band the winner takes full color, so a 10% / 60% cell reads as the majority, not as purple. The **Frontier** control picks the band: **Blend** (within 4.5x, the default; al-Andalus, the Sahel, Nigeria stay purple) or **Majority** (within 1.5x, near-parity only), which renders the moving battle lines of religion (the Reconquista frontier, the Ottoman Balkans) as crisp lines. Deep link: `?frontier=majority`.
 - City-scale overlay regions carry modern diaspora demographics honestly: Wayne County/Dearborn, Greater Paris, the Ruhr, Greater London, each with its own late-era anchors and a tight splat radius.
 - The simulation layer is loosely tethered to history (per-cell carrying capacity of 4x the historical share plus 5%), so the model chooses where and when faiths spread while history bounds how much; crank the sliders to fight the tether.
 

@@ -183,6 +183,11 @@
       <option value="pop" selected>Population-weighted</option>
       <option value="percap">Per capita</option>
     </select>
+    <span class="ctl-label">Frontier</span>
+    <select id="frontierSel">
+      <option value="blend" selected>Blend</option>
+      <option value="majority">Majority</option>
+    </select>
     <span class="ctl-label">Layers</span>
     <label class="chk"><input type="checkbox" id="layerC" checked> Christianity</label>
     <label class="chk"><input type="checkbox" id="layerM" checked> Islam</label>
@@ -633,7 +638,12 @@ function buildPressure(year, key) {
 const SIM_DT = 2, SNAP_EVERY = 8;
 const NSNAP = Math.floor(YSPAN / SNAP_EVERY) + 2;
 let simReady = false, simToken = 0;
-const params = { growth: 1, spread: 1, urban: 0.55, decline: 1, blend: 0.8, mode: 'pop' };
+const params = { growth: 1, spread: 1, urban: 0.55, decline: 1, blend: 0.8, mode: 'pop', frontier: 'blend' };
+// contested-band ratios (issue #8): a cell blends purple only when the larger share is
+// within RxN of the smaller; otherwise the winner takes full color. Blend mode keeps a wide
+// band (lopsided cells like 10%/60% now read as the majority); majority mode narrows it to
+// near-parity so frontiers render as battle lines.
+const R_BLEND = 4.5, R_MAJ = 1.5;
 const layers = { c: true, m: true };
 // one sim pass per religion: share key, seed cell/year, snapshot buffer, routes
 const SIMS = [
@@ -995,11 +1005,14 @@ function draw(year) {
     const sM = showM ? blend * hM + (1 - blend) * simM : 0;
     const iC = showC ? (blend * logT(hC) + (1 - blend) * logT(simC)) * densFac : 0;
     const iM = showM ? (blend * logT(hM) + (1 - blend) * logT(simM)) * densFac : 0;
-    if (showC && showM && sC >= MIXT && sM >= MIXT) {
-      // co-presence: blend the two ramps by relative share, gently minority-weighted
-      // (exponent < 1) so a 10-15% minority reads as a tint instead of vanishing
+    const mn = Math.min(sC, sM), mx = Math.max(sC, sM);
+    const R = params.frontier === 'majority' ? R_MAJ : R_BLEND;
+    if (showC && showM && mn >= MIXT && mx < R * mn) {
+      // contested cell. Blend mode: ramps blended by relative share, gently minority-weighted
+      // (exponent < 1) so a 10-15% minority reads as a tint. Majority mode: a flat 50/50
+      // purple, so the narrow contested band draws the frontier as a line.
       const rC = Math.pow(sC, 0.75), rM = Math.pow(sM, 0.75);
-      const t = rM / (rC + rM);
+      const t = params.frontier === 'majority' ? 0.5 : rM / (rC + rM);
       const q = Math.min(255, Math.round(Math.max(iC, iM) * 255)) * 4;
       data[o]   = LUT[q]   + t * (LUTM[q]   - LUT[q]);
       data[o+1] = LUT[q+1] + t * (LUTM[q+1] - LUT[q+1]);
@@ -1132,6 +1145,10 @@ let speed = 25;
     document.getElementById('layerC').checked = layers.c;
     document.getElementById('layerM').checked = layers.m;
   }
+  if (q.get('frontier') === 'majority') {
+    params.frontier = 'majority';
+    document.getElementById('frontierSel').value = 'majority';
+  }
   const vq = q.get('view'); // ?view=lon,lat,zoom
   if (vq) {
     const v = vq.split(',').map(Number);
@@ -1170,6 +1187,11 @@ playBtn.addEventListener('click', () => {
 document.getElementById('speedSel').addEventListener('change', e => speed = +e.target.value);
 document.getElementById('layerC').addEventListener('change', e => { layers.c = e.target.checked; buildLegend(); needsRedraw = true; });
 document.getElementById('layerM').addEventListener('change', e => { layers.m = e.target.checked; buildLegend(); needsRedraw = true; });
+document.getElementById('frontierSel').addEventListener('change', e => {
+  params.frontier = e.target.value;
+  buildLegend();
+  needsRedraw = true;
+});
 document.getElementById('modeSel').addEventListener('change', e => {
   params.mode = e.target.value;
   document.getElementById('legendNote').textContent = params.mode === 'percap'
@@ -1363,7 +1385,11 @@ function buildLegend() {
   }
   document.getElementById('legC').style.display = layers.c ? '' : 'none';
   document.getElementById('legM').style.display = layers.m ? '' : 'none';
-  document.getElementById('legMix').style.display = (layers.c && layers.m) ? '' : 'none';
+  const mix = document.getElementById('legMix');
+  mix.style.display = (layers.c && layers.m) ? '' : 'none';
+  mix.innerHTML = params.frontier === 'majority'
+    ? '<span class="mix-chip" style="background:#846995"></span> contested (within 1.5&times;)'
+    : '<span class="mix-chip" style="background:#846995"></span> mixed (both &ge; 2%, within 4.5&times;)';
 }
 
 // data tables (one per faith)
