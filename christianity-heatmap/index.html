@@ -515,7 +515,7 @@ const CITIES = [
 ["Jerusalem",35.2,31.8,33],["Antioch",36.2,36.2,45],["Ephesus",27.3,38,52],["Rome",12.5,41.9,55],
 ["Alexandria",29.9,31.2,60],["Edessa",38.8,37.2,150],["Carthage",10.3,36.8,180],["Etchmiadzin",44.3,40.2,301],
 ["Constantinople",29,41,330],["Axum",38.7,14.1,340],["Canterbury",1.1,51.3,597],["Aachen",6.1,50.8,800],
-["Kyiv",30.5,50.5,988],["Wittenberg",12.6,51.9,1517],["Mexico City",-99.1,19.4,1524],["Goa",73.8,15.5,1542],
+["Kyiv",30.5,50.5,988],["Wittenberg",12.6,51.9,1517],["Tenochtitlán",-99.1,19.4,1325],["Goa",73.8,15.5,1542],
 ["São Paulo",-46.6,-23.6,1554],["Manila",121,14.6,1571],["Boston",-71.1,42.4,1630],["Cape Town",18.4,-33.9,1652],
 ["Sydney",151.2,-33.9,1788],["Lagos",3.4,6.5,1861],["Seoul",127,37.6,1885],
 ["Montreal",-73.6,45.5,1642],["Philadelphia",-75.2,40,1682],["New Orleans",-90.1,30,1718],
@@ -548,13 +548,47 @@ const CITIES = [
 ["Isfahan",51.68,32.65,1598,2],["Freetown",-13.23,8.48,1792,1],["Monrovia",-10.8,6.3,1822,2],
 ["Zanzibar",39.19,-6.16,1832,2],["Kampala",32.58,.31,1877,1],["Léopoldville",15.32,-4.32,1881,1],
 ["Nairobi",36.82,-1.29,1899,2],["Jos",8.89,9.9,1900,2],["Riyadh",46.72,24.63,1932,2],
-["Karachi",67,24.86,1947,1],["Dubai",55.3,25.27,1971,2]
+["Karachi",67,24.86,1947,1],["Dubai",55.3,25.27,1971,2],["Acre",35.07,32.93,1104,2],
+["Tunis",10.18,36.8,700,2]
 ];
+
+// City lifecycle events (issue #10): [year, type, side, newName?], sorted by year.
+// Types: conq = changes hands (newName = renamed); fell = dies, marker fades permanently;
+// sack = survives a sacking (flash only); resist = siege repelled (attacker flash, reverts).
+// Sides color the animation: 'c' Christian blue, 'm' Muslim red, 'n' neutral/pagan gray.
+const CITY_EVENTS = {
+"Jerusalem":      [[638,'conq','m'],[1099,'conq','c'],[1187,'conq','m']],
+"Edessa":         [[639,'conq','m'],[1098,'conq','c'],[1144,'conq','m']],
+"Antioch":        [[637,'conq','m'],[969,'conq','c'],[1084,'conq','m'],[1098,'conq','c'],[1268,'fell','m']],
+"Acre":           [[1291,'conq','m']],
+"Rome":           [[410,'sack','n'],[455,'sack','n'],[546,'sack','n'],[1527,'sack','n']],
+"Carthage":       [[698,'fell','m']],
+"Ctesiphon":      [[637,'fell','m']],
+"Alexandria":     [[641,'conq','m']],
+"Cordoba":        [[1236,'conq','c']],
+"Granada":        [[1492,'conq','c']],
+"Dura-Europos":   [[256,'fell','n']],
+"Palmyra":        [[273,'fell','n']],
+"Ephesus":        [[1090,'conq','m'],[1400,'fell','n']],
+"Dongola":        [[1365,'fell','m']],
+"Meroë":          [[350,'fell','n']],
+"Chang'an":       [[904,'fell','n']],
+"Constantinople": [[1204,'sack','c'],[1453,'conq','m','Istanbul']],
+"Thessaloniki":   [[1430,'conq','m'],[1912,'conq','c']],
+"Athens":         [[1458,'conq','m'],[1833,'conq','c']],
+"Belgrade":       [[1456,'resist','m'],[1521,'conq','m'],[1867,'conq','c']],
+"Buda":           [[1541,'conq','m'],[1686,'conq','c']],
+"Vienna":         [[1529,'resist','m'],[1683,'resist','m']],
+"Valletta":       [[1565,'resist','m']],
+"Tenochtitlán":   [[1521,'conq','c','Mexico City']],
+"Nagasaki":       [[1614,'sack','n']]
+};
 
 // Timeline event ticks (v1 hooks for a richer events layer later)
 const EVENTS = [
 [33,"Pentecost"],[313,"Edict of Milan"],[622,"Rise of Islam"],[988,"Rus baptized"],
-[1054,"Great Schism"],[1095,"Crusades"],[1492,"Americas"],[1517,"Reformation"],[1910,"World missions"]
+[1054,"Great Schism"],[1095,"Crusades"],[1453,"Fall of Constantinople"],[1492,"Americas"],
+[1517,"Reformation"],[1683,"Siege of Vienna"],[1910,"World missions"]
 ];
 
 // Ocean crossings for the simulation: [fromLon,fromLat, toLon,toLat, openYear, religion]
@@ -1150,6 +1184,9 @@ function draw(year) {
   // city markers: constant screen size regardless of zoom; labels fade after ~90 years
   // at world view, but persist while zoomed in (label level-of-detail)
   const ink = cssVar('--ink'), ink2 = cssVar('--ink-2');
+  const inkRGB = hex2rgb(ink), ink2RGB = hex2rgb(ink2);
+  const SIDE_RGB = { c: [42, 120, 214], m: [207, 76, 69], n: [138, 138, 134] };
+  const mixc = (a, b, t) => `rgb(${Math.round(a[0] + (b[0]-a[0]) * t)},${Math.round(a[1] + (b[1]-a[1]) * t)},${Math.round(a[2] + (b[2]-a[2]) * t)})`;
   const zoomLabels = cam.z >= 2.2;
   const labelBoxes = [];   // placed label rects, so persistent labels don't collide
   ctx.textBaseline = 'middle';
@@ -1157,19 +1194,61 @@ function draw(year) {
   for (const [name, lon, lat, cy, rank] of CITIES) {
     if (year < cy) continue;
     const age = year - cy;
+    // lifecycle state (issue #10): resolved purely from the playhead year, so scrubbing
+    // in either direction replays falls, renames, and conquests correctly.
+    let dispName = name, dead = false, anim = null, animT = 0;
+    const evs = CITY_EVENTS[name];
+    if (evs) for (const [ey, type, side, newName] of evs) {
+      if (year < ey) {
+        // conquests telegraph: the old name swells in the attacker's color, then bursts
+        if (type === 'conq' && ey - year < 8) { anim = { type: 'pre', side }; animT = 1 - (ey - year) / 8; }
+        break;
+      }
+      if (newName) dispName = newName;
+      if (type === 'fell') dead = true;
+      const T = type === 'conq' ? 22 : type === 'fell' ? 30 : 14;
+      if (year - ey < T) { anim = { type, side }; animT = (year - ey) / T; }
+    }
+    if (dead && !anim) continue;                     // fallen cities leave the map
     // rank LOD: minor cities (rank 2) always debut visibly, then persist only under zoom
-    if ((rank || 1) > 1 && cam.z < 2 && age > 90) continue;
+    if (!anim && (rank || 1) > 1 && cam.z < 2 && age > 90) continue;
     const x = tx(px(lon)), y = ty(py(lat));
     if (x < -60 || x > W + 60 || y < -20 || y > H + 20) continue;
+
+    const flash = anim ? SIDE_RGB[anim.side] : null;
+    const pulse = anim ? Math.sin(Math.PI * animT) : 0;
+    // strength of the color flash: pre-conquest ramps up, conquest/sack/fell settle back,
+    // resist peaks mid-window and reverts
+    const colMix = !anim ? 0
+      : anim.type === 'pre' ? animT
+      : anim.type === 'resist' ? pulse
+      : 1 - animT;
+    // burst ring at the moment of conquest / sack / repelled siege
+    if (anim && anim.type !== 'fell' && anim.type !== 'pre') {
+      ctx.beginPath();
+      ctx.arc(x, y, (3 + animT * 24) * DPR, 0, 7);
+      ctx.strokeStyle = mixc(flash, flash, 0);
+      ctx.globalAlpha = 0.55 * (1 - animT);
+      ctx.lineWidth = Math.max(1, 2 * DPR * (1 - animT));
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
     ctx.beginPath();
-    ctx.arc(x, y, 1.6 * DPR, 0, 7);
-    ctx.fillStyle = ink;
-    ctx.globalAlpha = 0.85;
+    ctx.arc(x, y, (1.6 + 1.6 * Math.max(pulse, anim && anim.type === 'pre' ? animT : 0)) * DPR, 0, 7);
+    ctx.fillStyle = anim ? mixc(inkRGB, flash, colMix) : ink;
+    ctx.globalAlpha = (anim && anim.type === 'fell' ? 1 - animT : 1) * 0.85;
     ctx.fill();
-    if (age < 90 || zoomLabels) {
-      const lw = ctx.measureText(name).width, lh = 12 * DPR;
+
+    if (anim || age < 90 || zoomLabels) {
+      const scale = !anim ? 1
+        : anim.type === 'pre' ? 1 + 0.9 * animT
+        : anim.type === 'conq' ? 1 + 0.9 * (1 - animT)
+        : anim.type === 'fell' ? 1 - 0.25 * animT
+        : 1 + 0.35 * pulse;
+      if (scale !== 1) ctx.font = `${11 * DPR * scale}px system-ui, sans-serif`;
+      const lw = ctx.measureText(dispName).width, lh = 12 * DPR * scale;
       let lx = x + 5 * DPR, ly = y - 4 * DPR, ok = true;
-      if (zoomLabels) {
+      if (zoomLabels && !anim) {
         // try right-above, then right-below, then drop the label
         ok = false;
         for (const dy of [-4 * DPR, 9 * DPR]) {
@@ -1177,13 +1256,17 @@ function draw(year) {
           if (!labelBoxes.some(b => lx < b.x + b.w && lx + lw > b.x && ly < b.y + b.h && ly + lh > b.y)) { ok = true; break; }
         }
         if (ok) labelBoxes.push({ x: lx, y: ly, w: lw, h: lh });
+      } else if (zoomLabels) {
+        labelBoxes.push({ x: lx, y: ly, w: lw, h: lh });   // event labels always draw, claim space
       }
       if (ok) {
-        const a = zoomLabels ? 0.92 : (age < 10 ? age / 10 : 1 - (age - 10) / 80);
+        const a = anim ? (anim.type === 'fell' ? 1 - animT : 1)
+          : zoomLabels ? 0.92 : (age < 10 ? age / 10 : 1 - (age - 10) / 80);
         ctx.globalAlpha = Math.max(0, a) * 0.95;
-        ctx.fillStyle = ink2;
-        ctx.fillText(name, lx, ly);
+        ctx.fillStyle = anim ? mixc(ink2RGB, flash, Math.min(1, colMix * 1.4)) : ink2;
+        ctx.fillText(dispName, lx, ly);
       }
+      if (scale !== 1) ctx.font = `${11 * DPR}px system-ui, sans-serif`;
     }
     ctx.globalAlpha = 1;
   }
