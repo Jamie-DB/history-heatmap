@@ -55,11 +55,20 @@
   }
   #map { display: block; width: 100%; cursor: crosshair; touch-action: none; }
   .reset-view {
-    position: absolute; right: 12px; bottom: 12px; z-index: 4;
+    position: absolute; right: 48px; bottom: 12px; z-index: 4;
     border: 1px solid var(--border); background: var(--surface); color: var(--ink-2);
     border-radius: 8px; padding: 5px 11px; font-size: 12px; cursor: pointer;
   }
   .reset-view:hover { color: var(--ink); }
+  .fs-btn {
+    position: absolute; right: 12px; bottom: 12px; z-index: 4;
+    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink-2);
+    border-radius: 8px; font-size: 14px; line-height: 1; cursor: pointer;
+  }
+  .fs-btn:hover { color: var(--ink); }
+  .map-wrap.fs { position: fixed; inset: 0; z-index: 50; border-radius: 0; border: none; }
+  body.no-scroll { overflow: hidden; }
   .year-overlay {
     position: absolute; top: 14px; left: 18px; pointer-events: none;
     font-size: 44px; font-weight: 700; letter-spacing: -0.02em; line-height: 1;
@@ -157,6 +166,7 @@
     <div class="sim-status" id="simStatus"></div>
     <div class="tooltip" id="tooltip"></div>
     <button class="reset-view" id="resetView" hidden>Reset view</button>
+    <button class="fs-btn" id="fsBtn" title="Fill the window">&#x26F6;</button>
   </div>
 
   <div class="controls">
@@ -752,10 +762,12 @@ function buildLUT() { fillLUT(LUT, RAMP); fillLUT(LUTM, RAMP_RED); }
 const K = 150, LOGK = Math.log(1 + K);
 const logT = s => s <= 0 ? 0 : Math.log(1 + K * s) / LOGK;
 
-let W = 0, H = 0, DPR = 1, landPath = null, coastPath = null;
+// W/H: canvas device px. BH: base map height (world at zoom 1), tied to W so degrees
+// stay square; H may exceed BH in fullscreen (letterboxed world, not stretched).
+let W = 0, H = 0, BH = 0, DPR = 1, landPath = null, coastPath = null;
 let landPath50 = null, coastPath50 = null;
 const px = lon => (lon + 180) / 360 * W;
-const py = lat => (LAT_TOP - lat) / (LAT_TOP - LAT_BOT) * H;
+const py = lat => (LAT_TOP - lat) / (LAT_TOP - LAT_BOT) * BH;
 
 /* ============ camera (issue #6, phase A) ============ */
 const CAM_LAT0 = (LAT_TOP + LAT_BOT) / 2;
@@ -766,9 +778,12 @@ const tx = bx => (bx - px(cam.lon)) * cam.z + W / 2;
 const ty = by => (by - py(cam.lat)) * cam.z + H / 2;
 function clampCam() {
   cam.z = Math.min(ZMAX, Math.max(ZMIN, cam.z));
-  const hw = 180 / cam.z, hh = (LAT_TOP - LAT_BOT) / 2 / cam.z;
+  if (!W) return;   // before first resize there is no geometry to clamp against
+  const hw = 180 / cam.z;
   cam.lon = Math.min(180 - hw, Math.max(-180 + hw, cam.lon));
-  cam.lat = Math.min(LAT_TOP - hh, Math.max(LAT_BOT + hh, cam.lat));
+  const hh = (H / (2 * cam.z)) * (LAT_TOP - LAT_BOT) / BH;   // visible half-height in degrees
+  if (hh >= (LAT_TOP - LAT_BOT) / 2) cam.lat = CAM_LAT0;     // whole lat range visible: center it
+  else cam.lat = Math.min(LAT_TOP - hh, Math.max(LAT_BOT + hh, cam.lat));
 }
 // client (CSS px) -> lon/lat through the camera, for tooltips and zoom targeting
 function clientLonLat(clientX, clientY) {
@@ -777,7 +792,7 @@ function clientLonLat(clientX, clientY) {
   const cy = (clientY - r.top) * (H / r.height);
   const bx = (cx - W / 2) / cam.z + px(cam.lon);
   const by = (cy - H / 2) / cam.z + py(cam.lat);
-  return [bx / W * 360 - 180, LAT_TOP - by / H * (LAT_TOP - LAT_BOT)];
+  return [bx / W * 360 - 180, LAT_TOP - by / BH * (LAT_TOP - LAT_BOT)];
 }
 
 function pathsFrom(rings) {
@@ -843,12 +858,15 @@ window.addEventListener('scroll', updateHUD, { passive: true });
 function resize() {
   const wrap = canvas.parentElement;
   DPR = Math.min(2, window.devicePixelRatio || 1);
-  const cssW = wrap.clientWidth;
-  const cssH = Math.round(cssW * (LAT_TOP - LAT_BOT) / 360);
+  const fs = wrap.classList.contains('fs');
+  const cssW = fs ? window.innerWidth : wrap.clientWidth;
+  const cssH = fs ? window.innerHeight : Math.round(cssW * (LAT_TOP - LAT_BOT) / 360);
   canvas.style.height = cssH + 'px';
   canvas.width = Math.round(cssW * DPR); canvas.height = Math.round(cssH * DPR);
   W = canvas.width; H = canvas.height;
+  BH = W * (LAT_TOP - LAT_BOT) / 360;
   buildPaths();
+  clampCam();
   updateHUD();
   needsRedraw = true;
 }
@@ -919,7 +937,7 @@ function draw(year) {
   ctx.clip(lp, 'evenodd');
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
   const sy = (90 - LAT_TOP) / 2, sh = (LAT_TOP - LAT_BOT) / 2;
-  ctx.drawImage(fieldCanvas, 0, sy, GW, sh, 0, 0, W, H);
+  ctx.drawImage(fieldCanvas, 0, sy, GW, sh, 0, 0, W, BH);
   ctx.restore();
   ctx.strokeStyle = cssVar('--baseline');
   ctx.lineWidth = Math.max(1, 0.7 * DPR) / cam.z;
@@ -1125,6 +1143,20 @@ resetBtn.addEventListener('click', () => {
   cam.lon = 0; cam.lat = CAM_LAT0; cam.z = 1;
   onCamChange();
 });
+// fullscreen toggle: map + HUD fill the browser window (Esc exits)
+const fsBtn = document.getElementById('fsBtn');
+function toggleFs() {
+  const wrap = canvas.parentElement;
+  const on = wrap.classList.toggle('fs');
+  document.body.classList.toggle('no-scroll', on);
+  fsBtn.innerHTML = on ? '&#x2715;' : '&#x26F6;';
+  fsBtn.title = on ? 'Exit full window (Esc)' : 'Fill the window';
+  resize();
+}
+fsBtn.addEventListener('click', toggleFs);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && canvas.parentElement.classList.contains('fs')) toggleFs();
+});
 // zoom toward a client point: the lon/lat under the cursor stays under the cursor
 function zoomAt(clientX, clientY, factor) {
   const [lon, lat] = clientLonLat(clientX, clientY);
@@ -1133,7 +1165,7 @@ function zoomAt(clientX, clientY, factor) {
   const cx = (clientX - r.left) * (W / r.width);
   const cy = (clientY - r.top) * (H / r.height);
   cam.lon = lon - (cx - W / 2) / cam.z * 360 / W;
-  cam.lat = lat + (cy - H / 2) / cam.z * (LAT_TOP - LAT_BOT) / H;
+  cam.lat = lat + (cy - H / 2) / cam.z * (LAT_TOP - LAT_BOT) / BH;
   clampCam();
   onCamChange();
 }
@@ -1149,7 +1181,7 @@ let pinch0 = null;
 function panBy(dxClient, dyClient) {
   const r = canvas.getBoundingClientRect();
   cam.lon -= dxClient * (W / r.width) / cam.z * 360 / W;
-  cam.lat += dyClient * (H / r.height) / cam.z * (LAT_TOP - LAT_BOT) / H;
+  cam.lat += dyClient * (H / r.height) / cam.z * (LAT_TOP - LAT_BOT) / BH;
   clampCam();
   onCamChange();
 }
@@ -1274,6 +1306,7 @@ buildLUT();
 buildLegend();
 resize();
 onCamChange();   // reflect a ?view= deep link in the reset button and cursor
+if (new URLSearchParams(location.search).get('fs') === '1') toggleFs();
 window.addEventListener('resize', resize);
 runSimulation();
 requestAnimationFrame(frame);
