@@ -120,6 +120,14 @@
   .legend-name { font-size: 10.5px; color: var(--ink-2); margin-bottom: 2px; }
   .mix-chip { display: inline-block; width: 14px; height: 10px; border-radius: 3px; border: 1px solid var(--border); vertical-align: -1px; }
 
+  .narr-panel {
+    display: none; flex-wrap: wrap; align-items: center; gap: 6px 14px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 9px 14px; margin: 0 2px 10px;
+  }
+  .narr-panel.on { display: flex; }
+  .narr-panel .sep { width: 1px; height: 15px; background: var(--grid); }
+  .narr-swatch { display: inline-block; width: 12px; height: 3px; border-radius: 2px; vertical-align: 3px; margin-right: 4px; }
   .timeline { position: relative; height: 64px; margin: 2px 2px 10px; user-select: none; touch-action: none; cursor: pointer; }
   .tl-track { position: absolute; top: 14px; left: 0; right: 0; height: 6px; border-radius: 3px; background: var(--grid); }
   .tl-fill { position: absolute; top: 14px; left: 0; height: 6px; border-radius: 3px; background: var(--accent); width: 0; }
@@ -226,6 +234,8 @@
     <label class="chk heat-only"><input type="checkbox" id="layerM" checked> Islam</label>
     <span class="ctl-label" id="hoverReadout"></span>
   </div>
+
+  <div class="narr-panel" id="narrPanel"></div>
 
   <div class="timeline" id="timeline">
     <div class="tl-track"></div>
@@ -1200,6 +1210,7 @@ function draw(year) {
   fctx.putImageData(fimg, 0, 0);
   paintMap({ lon0, latTopV, lonSpan, latSpan });
   drawCities(year);
+  drawNarrative(year);
 }
 
 // Map chrome: surface, land, optional heat inset, coastline. `heatRect` is the viewport
@@ -1236,7 +1247,198 @@ function paintMap(heatRect) {
   ctx.restore();
 }
 
-function drawBase() { paintMap(null); drawCities(year); }
+function drawBase() { paintMap(null); drawCities(year); drawNarrative(year); }
+
+/* ============ journey & annotation engine (issue #15) ============ */
+// Shared primitive for narrative overlays: routes that draw leg by leg as the playhead
+// advances, and sites that ignite at their date. Everything is a pure function of the year
+// (the #10 convention), so scrubbing backwards un-draws correctly.
+//
+// JOURNEY = { id, who, mode, src, color, group, legs: [{lon, lat, place, year}] }
+// SITE    = { id, name, lon, lat, mode, src, year, kind, note }
+// src: 'scripture' (solid, filled) | 'historical' (fine dash, ringed) | 'tradition' (dashed, hollow)
+const NARR_C = { paul: '#2a78d6', jesus: '#8b5cf6', peter: '#0f9d8f', other: '#c2601f', death: '#b3322c' };
+const JOURNEYS = [], SITES = [];
+// Seed content proving the engine across all three provenance styles; phase 3 (#16) and
+// phase 4 (#17) expand this into the full roster.
+const L = (lon, lat, place, year) => ({ lon, lat, place, year });
+JOURNEYS.push(
+  { id: 'paul1', who: 'Paul', mode: 'apostolic', src: 'scripture', color: NARR_C.paul,
+    group: 'paul', groupLabel: "Paul's journeys", legs: [
+    L(36.2,36.2,'Antioch',46), L(35.9,36.1,'Seleucia',46.1), L(33.9,35.2,'Salamis',46.4),
+    L(32.4,34.75,'Paphos',46.8), L(30.85,36.86,'Perga',47.1), L(31.2,38.3,'Pisidian Antioch',47.4),
+    L(32.5,37.87,'Iconium',47.7), L(32.45,37.58,'Lystra',48), L(33.4,37.35,'Derbe',48.2),
+    L(32.45,37.58,'Lystra',48.4), L(31.2,38.3,'Pisidian Antioch',48.6),
+    L(30.65,36.88,'Attalia',48.8), L(36.2,36.2,'Antioch',49) ] },
+  { id: 'peter', who: 'Peter', mode: 'apostolic', src: 'scripture', color: NARR_C.peter,
+    group: 'peter', groupLabel: 'Peter', legs: [
+    L(35.2,31.8,'Jerusalem',33), L(34.75,32.05,'Joppa',40), L(34.9,32.5,'Caesarea',40.5),
+    L(36.2,36.2,'Antioch',44) ] },
+  { id: 'thomas', who: 'Thomas', mode: 'apostolic', src: 'tradition', color: NARR_C.other,
+    group: 'thomas', groupLabel: 'Thomas to India', legs: [
+    L(35.2,31.8,'Jerusalem',40), L(44.4,33.3,'Mesopotamia',43), L(51.4,35.7,'Parthia',45),
+    L(66.9,39.7,'Bactria',48), L(72.8,19,'the Indus',50), L(76.2,10.22,'Muziris',52),
+    L(80.28,13.03,'Mylapore',68) ] }
+);
+SITES.push(
+  { id: 'stephen', name: 'Stephen stoned', lon: 35.22, lat: 31.79, mode: 'apostolic',
+    src: 'scripture', year: 34, group: 'deaths', groupLabel: 'Deaths', color: NARR_C.death },
+  { id: 'jamesZ', name: 'James executed', lon: 35.24, lat: 31.77, mode: 'apostolic',
+    src: 'scripture', year: 44, group: 'deaths', groupLabel: 'Deaths', color: NARR_C.death },
+  { id: 'jamesJ', name: 'James the Just', lon: 35.19, lat: 31.83, mode: 'apostolic',
+    src: 'historical', year: 62, group: 'deaths', groupLabel: 'Deaths', color: NARR_C.death },
+  { id: 'thomasD', name: 'Thomas martyred', lon: 80.28, lat: 13.03, mode: 'apostolic',
+    src: 'tradition', year: 72, group: 'deaths', groupLabel: 'Deaths', color: NARR_C.death }
+);
+const narrativeOn = {};            // group id -> bool, driven by the toggle panel
+let showTradition = true;
+
+const SRC_STYLE = {
+  scripture: { dash: [],       width: 2.0, fill: true },
+  historical:{ dash: [7, 3],   width: 1.7, fill: 'ring' },
+  tradition: { dash: [3.5, 4], width: 1.6, fill: false }
+};
+function srcVisible(src) { return src !== 'tradition' || showTradition; }
+function groupOn(g) { return narrativeOn[g] !== false; }
+
+// position along a journey at a given year: returns {pts, head} where pts is the drawn
+// polyline so far and head is the moving point, or null before the journey starts
+function journeyProgress(j, y) {
+  const legs = j.legs;
+  if (y < legs[0].year) return null;
+  const pts = [[legs[0].lon, legs[0].lat]];
+  for (let i = 1; i < legs.length; i++) {
+    const a = legs[i - 1], b = legs[i];
+    if (y >= b.year) { pts.push([b.lon, b.lat]); continue; }
+    const span = b.year - a.year;
+    const t = span > 0 ? Math.min(1, Math.max(0, (y - a.year) / span)) : 1;
+    pts.push([a.lon + (b.lon - a.lon) * t, a.lat + (b.lat - a.lat) * t]);
+    return { pts, head: pts[pts.length - 1], done: false };
+  }
+  return { pts, head: pts[pts.length - 1], done: true };
+}
+
+function drawNarrative(y) {
+  const active = JOURNEYS.filter(j => j.mode === modeId && groupOn(j.group) && srcVisible(j.src));
+  const sites = SITES.filter(s => s.mode === modeId && groupOn(s.group) && srcVisible(s.src) && y >= s.year);
+  if (!active.length && !sites.length) return;
+  const k = 1 / cam.z;                 // screen-constant strokes and radii under zoom
+  const ink2 = cssVar('--ink-2');
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.scale(cam.z, cam.z);
+  ctx.translate(-px(cam.lon), -py(cam.lat));
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+  for (const j of active) {
+    const pr = journeyProgress(j, y);
+    if (!pr || pr.pts.length < 2) continue;
+    const st = SRC_STYLE[j.src];
+    ctx.setLineDash(st.dash.map(d => d * DPR * k));
+    ctx.lineWidth = st.width * DPR * k;
+    ctx.strokeStyle = j.color;
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(px(pr.pts[0][0]), py(pr.pts[0][1]));
+    for (let i = 1; i < pr.pts.length; i++) ctx.lineTo(px(pr.pts[i][0]), py(pr.pts[i][1]));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (!pr.done) {                    // leading dot shows direction of travel
+      ctx.beginPath();
+      ctx.arc(px(pr.head[0]), py(pr.head[1]), 2.6 * DPR * k, 0, 7);
+      ctx.fillStyle = j.color;
+      ctx.fill();
+    }
+  }
+
+  for (const s of sites) {
+    const st = SRC_STYLE[s.src];
+    const age = y - s.year;
+    const flare = age < 6 ? 1 - age / 6 : 0;     // brief ignition, pure function of year
+    const r = (3 + 5 * flare) * DPR * k;
+    ctx.beginPath();
+    ctx.arc(px(s.lon), py(s.lat), r, 0, 7);
+    ctx.lineWidth = 1.6 * DPR * k;
+    ctx.strokeStyle = s.color || ink2;
+    if (st.fill === true) { ctx.fillStyle = s.color || ink2; ctx.globalAlpha = 0.9; ctx.fill(); }
+    else { ctx.globalAlpha = 0.9; ctx.stroke(); if (st.fill === 'ring') { ctx.beginPath(); ctx.arc(px(s.lon), py(s.lat), r * 0.4, 0, 7); ctx.fillStyle = s.color || ink2; ctx.fill(); } }
+    if (flare > 0) {                             // expanding burst, same vocabulary as #10
+      ctx.beginPath();
+      ctx.arc(px(s.lon), py(s.lat), (5 + 22 * (1 - flare)) * DPR * k, 0, 7);
+      ctx.globalAlpha = 0.5 * flare;
+      ctx.lineWidth = 2 * DPR * k;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  narrativeLabels(y, active, sites);
+}
+
+// labels drawn in screen space so they stay upright and constant-size, and so they can
+// share the collision budget with city labels (#6)
+function narrativeLabels(y, active, sites) {
+  const boxes = narrativeLabelBoxes;
+  ctx.font = `${11 * DPR}px system-ui, sans-serif`;
+  ctx.textBaseline = 'middle';
+  const place = (label, lon, lat, color) => {
+    const x = tx(px(lon)), yy = ty(py(lat));
+    if (x < -40 || x > W + 40 || yy < -20 || yy > H + 20) return;
+    const w = ctx.measureText(label).width, h = 12 * DPR;
+    for (const dy of [-7 * DPR, 10 * DPR, -18 * DPR]) {
+      const lx = x + 6 * DPR, ly = yy + dy;
+      if (boxes.some(b => lx < b.x + b.w && lx + w > b.x && ly < b.y + b.h && ly + h > b.y)) continue;
+      boxes.push({ x: lx, y: ly, w, h });
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.95;
+      ctx.fillText(label, lx, ly);
+      ctx.globalAlpha = 1;
+      return;
+    }
+  };
+  for (const s of sites) if (s.name) place(s.name, s.lon, s.lat, s.color || cssVar('--ink-2'));
+  for (const j of active) {
+    const pr = journeyProgress(j, y);
+    if (pr && !pr.done && j.who) place(j.who, pr.head[0], pr.head[1], j.color);
+  }
+}
+let narrativeLabelBoxes = [];
+
+// toggle panel, generated from whichever groups the active mode actually registers
+function buildNarrativePanel() {
+  const panel = document.getElementById('narrPanel');
+  const groups = [];
+  for (const item of [...JOURNEYS, ...SITES]) {
+    if (item.mode !== modeId) continue;
+    if (!groups.some(g => g.id === item.group))
+      groups.push({ id: item.group, label: item.groupLabel || item.group, color: item.color });
+  }
+  panel.classList.toggle('on', groups.length > 0);
+  if (!groups.length) { panel.innerHTML = ''; return; }
+  const hasTradition = [...JOURNEYS, ...SITES].some(i => i.mode === modeId && i.src === 'tradition');
+  panel.innerHTML =
+    `<label class="chk"><input type="checkbox" id="narrAll" checked> <b>All overlays</b></label><span class="sep"></span>` +
+    groups.map(g =>
+      `<label class="chk"><input type="checkbox" data-grp="${g.id}"${groupOn(g.id) ? ' checked' : ''}>` +
+      `<span class="narr-swatch" style="background:${g.color || 'currentColor'}"></span>${g.label}</label>`).join('') +
+    (hasTradition
+      ? `<span class="sep"></span><label class="chk" title="Dashed routes and hollow markers are tradition rather than scripture">` +
+        `<input type="checkbox" id="narrTrad"${showTradition ? ' checked' : ''}> tradition</label>`
+      : '');
+  panel.querySelectorAll('[data-grp]').forEach(cb => cb.addEventListener('change', () => {
+    narrativeOn[cb.dataset.grp] = cb.checked;
+    needsRedraw = true;
+  }));
+  const all = document.getElementById('narrAll');
+  all.addEventListener('change', () => {
+    panel.querySelectorAll('[data-grp]').forEach(cb => {
+      cb.checked = all.checked; narrativeOn[cb.dataset.grp] = all.checked;
+    });
+    needsRedraw = true;
+  });
+  const trad = document.getElementById('narrTrad');
+  if (trad) trad.addEventListener('change', () => { showTradition = trad.checked; needsRedraw = true; });
+}
 
 function drawCities(year) {
 
@@ -1247,7 +1449,8 @@ function drawCities(year) {
   const SIDE_RGB = { c: [42, 120, 214], m: [207, 76, 69], n: [138, 138, 134] };
   const mixc = (a, b, t) => `rgb(${Math.round(a[0] + (b[0]-a[0]) * t)},${Math.round(a[1] + (b[1]-a[1]) * t)},${Math.round(a[2] + (b[2]-a[2]) * t)})`;
   const zoomLabels = cam.z >= 2.2;
-  const labelBoxes = [];   // placed label rects, so persistent labels don't collide
+  narrativeLabelBoxes = [];              // shared collision budget with narrative labels (#15)
+  const labelBoxes = narrativeLabelBoxes; // placed label rects, so labels don't collide
   ctx.textBaseline = 'middle';
   ctx.font = `${11 * DPR}px system-ui, sans-serif`;
   for (const [name, lon, lat, cy, rank] of CITIES) {
@@ -1431,6 +1634,12 @@ let speed = MODES.main.speed;
     params.frontier = 'majority';
     document.getElementById('frontierSel').value = 'majority';
   }
+  const bq = q.get('bib');  // ?bib=paul,deaths restricts narrative groups; ?bib=none clears
+  if (bq !== null) {
+    const want = bq.split(',').filter(Boolean);
+    for (const item of [...JOURNEYS, ...SITES]) narrativeOn[item.group] = want.includes(item.group);
+  }
+  if (q.get('tradition') === '0') showTradition = false;
   const vq = q.get('view'); // ?view=lon,lat,zoom
   if (vq) {
     const v = vq.split(',').map(Number);
@@ -1561,6 +1770,7 @@ function setMode(id) {
   if (saved) speed = saved.speed;
   speedSel.value = String(speed);
   buildTimeline();
+  buildNarrativePanel();
   onCamChange();
   updateChrome();
   needsRedraw = true;
@@ -1799,6 +2009,7 @@ buildLegend();
 stylePopBars();
 applyModeChrome();
 buildTimeline();
+buildNarrativePanel();
 resize();
 onCamChange();   // reflect a ?view= deep link in the reset button and cursor
 if (new URLSearchParams(location.search).get('fs') === '1') toggleFs();
