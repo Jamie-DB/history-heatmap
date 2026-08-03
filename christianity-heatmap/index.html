@@ -1259,36 +1259,86 @@ function drawBase() { paintMap(null); drawCities(year); drawNarrative(year); }
 // src: 'scripture' (solid, filled) | 'historical' (fine dash, ringed) | 'tradition' (dashed, hollow)
 const NARR_C = { paul: '#2a78d6', jesus: '#8b5cf6', peter: '#0f9d8f', other: '#c2601f', death: '#b3322c' };
 const JOURNEYS = [], SITES = [];
-// Seed content proving the engine across all three provenance styles; phase 3 (#16) and
-// phase 4 (#17) expand this into the full roster.
 const L = (lon, lat, place, year) => ({ lon, lat, place, year });
+const J = (id, who, group, groupLabel, src, color, legs) =>
+  ({ id, who, mode: 'apostolic', src, color, group, groupLabel, legs });
+const S = (id, name, lon, lat, year, src, group, groupLabel, color, note) =>
+  ({ id, name, lon, lat, year, src, mode: 'apostolic', group, groupLabel, color, note });
+
+/* --- New Testament core, scripture-attested (issue #16) --- */
 JOURNEYS.push(
-  { id: 'paul1', who: 'Paul', mode: 'apostolic', src: 'scripture', color: NARR_C.paul,
-    group: 'paul', groupLabel: "Paul's journeys", legs: [
-    L(36.2,36.2,'Antioch',46), L(35.9,36.1,'Seleucia',46.1), L(33.9,35.2,'Salamis',46.4),
-    L(32.4,34.75,'Paphos',46.8), L(30.85,36.86,'Perga',47.1), L(31.2,38.3,'Pisidian Antioch',47.4),
-    L(32.5,37.87,'Iconium',47.7), L(32.45,37.58,'Lystra',48), L(33.4,37.35,'Derbe',48.2),
-    L(32.45,37.58,'Lystra',48.4), L(31.2,38.3,'Pisidian Antioch',48.6),
-    L(30.65,36.88,'Attalia',48.8), L(36.2,36.2,'Antioch',49) ] },
-  { id: 'peter', who: 'Peter', mode: 'apostolic', src: 'scripture', color: NARR_C.peter,
-    group: 'peter', groupLabel: 'Peter', legs: [
-    L(35.2,31.8,'Jerusalem',33), L(34.75,32.05,'Joppa',40), L(34.9,32.5,'Caesarea',40.5),
-    L(36.2,36.2,'Antioch',44) ] },
-  { id: 'thomas', who: 'Thomas', mode: 'apostolic', src: 'tradition', color: NARR_C.other,
-    group: 'thomas', groupLabel: 'Thomas to India', legs: [
-    L(35.2,31.8,'Jerusalem',40), L(44.4,33.3,'Mesopotamia',43), L(51.4,35.7,'Parthia',45),
-    L(66.9,39.7,'Bactria',48), L(72.8,19,'the Indus',50), L(76.2,10.22,'Muziris',52),
-    L(80.28,13.03,'Mylapore',68) ] }
+  // Dates for Jesus's ministry are compressed into 30-33; the sequence is the point,
+  // not the precision. Birth and flight are placed before the ministry window opens.
+  J('jesus', 'Jesus', 'jesus', 'Jesus', 'scripture', NARR_C.jesus, [
+    L(35.20,31.70,'Bethlehem',30), L(31.24,30.05,'Egypt',30.1), L(35.30,32.70,'Nazareth',30.3),
+    L(35.55,31.84,'the Jordan',30.6), L(35.45,31.60,'the wilderness',30.8),
+    L(35.34,32.75,'Cana',31), L(35.57,32.88,'Capernaum',31.2), L(35.37,32.63,'Nain',31.5),
+    L(35.90,32.61,'the Decapolis',31.8), L(35.20,33.27,'Tyre',32), L(35.39,33.56,'Sidon',32.1),
+    L(35.69,33.25,'Caesarea Philippi',32.3), L(35.39,32.69,'the Transfiguration',32.4),
+    L(35.28,32.20,'Sychar',32.6), L(35.44,31.87,'Jericho',32.8),
+    L(35.26,31.77,'Bethany',32.9), L(35.23,31.78,'Jerusalem',33),
+    L(35.00,31.81,'Emmaus',33.1), L(35.57,32.88,'Galilee',33.2), L(35.25,31.78,'Mount of Olives',33.3) ]),
+
+  J('paul1', 'Paul', 'paul', "Paul's journeys", 'scripture', NARR_C.paul, [
+    L(36.20,36.20,'Antioch',46), L(35.93,36.12,'Seleucia',46.1), L(33.90,35.18,'Salamis',46.4),
+    L(32.41,34.76,'Paphos',46.8), L(30.85,36.86,'Perga',47.1), L(31.19,38.31,'Pisidian Antioch',47.4),
+    L(32.48,37.87,'Iconium',47.7), L(32.45,37.58,'Lystra',48), L(33.42,37.35,'Derbe',48.2),
+    L(32.45,37.58,'Lystra',48.4), L(31.19,38.31,'Pisidian Antioch',48.6),
+    L(30.65,36.88,'Attalia',48.8), L(36.20,36.20,'Antioch',49) ]),
+  J('paul2', 'Paul', 'paul', "Paul's journeys", 'scripture', NARR_C.paul, [
+    L(36.20,36.20,'Antioch',49.2), L(35.30,36.90,'Cilicia',49.4), L(33.42,37.35,'Derbe',49.6),
+    L(32.45,37.58,'Lystra',49.8), L(31.50,39.20,'Phrygia & Galatia',50.2),
+    L(26.26,39.82,'Troas',50.6), L(25.53,40.48,'Samothrace',50.7), L(24.05,40.93,'Neapolis',50.8),
+    L(24.29,41.01,'Philippi',50.9), L(23.85,40.82,'Amphipolis',51.1), L(22.94,40.64,'Thessalonica',51.2),
+    L(22.19,40.52,'Berea',51.5), L(23.73,37.98,'Athens',51.7), L(22.93,37.94,'Corinth',51.9),
+    L(23.02,37.88,'Cenchreae',52.6), L(27.34,37.95,'Ephesus',52.7), L(34.90,32.50,'Caesarea',52.8),
+    L(35.23,31.78,'Jerusalem',52.9), L(36.20,36.20,'Antioch',53) ]),
+  J('paul3', 'Paul', 'paul', "Paul's journeys", 'scripture', NARR_C.paul, [
+    L(36.20,36.20,'Antioch',53.2), L(31.50,39.20,'Galatia & Phrygia',53.6),
+    L(27.34,37.95,'Ephesus',54), L(24.29,41.01,'Macedonia',56.5), L(22.93,37.94,'Corinth',56.8),
+    L(24.29,41.01,'Philippi',57.1), L(26.26,39.82,'Troas',57.2), L(26.44,39.49,'Assos',57.3),
+    L(26.55,39.10,'Mitylene',57.35), L(27.28,37.53,'Miletus',57.4), L(29.32,36.26,'Patara',57.5),
+    L(35.20,33.27,'Tyre',57.6), L(35.08,32.92,'Ptolemais',57.7), L(34.90,32.50,'Caesarea',57.8),
+    L(35.23,31.78,'Jerusalem',57.9) ]),
+  J('paul4', 'Paul', 'paul', "Paul's journeys", 'scripture', NARR_C.paul, [
+    L(34.90,32.50,'Caesarea',59.5), L(35.39,33.56,'Sidon',59.6), L(29.98,36.25,'Myra',59.8),
+    L(27.38,36.69,'Cnidus',59.9), L(24.81,34.93,'Fair Havens',60), L(14.51,35.90,'Malta',60.2),
+    L(15.29,37.07,'Syracuse',60.5), L(15.65,38.11,'Rhegium',60.6), L(14.28,40.82,'Puteoli',60.7),
+    L(12.80,41.58,'Three Taverns',60.8), L(12.50,41.90,'Rome',60.9) ]),
+
+  J('barnabas', 'Barnabas', 'barnabas', 'Barnabas', 'scripture', NARR_C.other, [
+    L(36.20,36.20,'Antioch',49.2), L(35.93,36.12,'Seleucia',49.4), L(33.90,35.18,'Salamis',49.8) ]),
+  J('peter', 'Peter', 'peter', 'Peter', 'scripture', NARR_C.peter, [
+    L(35.23,31.78,'Jerusalem',33), L(34.88,32.28,'Lydda',39), L(34.75,32.05,'Joppa',40),
+    L(34.90,32.50,'Caesarea',40.5), L(36.20,36.20,'Antioch',44) ]),
+  J('philip', 'Philip', 'philip', 'Philip', 'scripture', NARR_C.other, [
+    L(35.23,31.78,'Jerusalem',34), L(35.28,32.20,'Samaria',35), L(34.47,31.50,'the Gaza road',36),
+    L(34.75,31.80,'Azotus',36.3), L(34.90,32.50,'Caesarea',36.6) ])
 );
+
+// Named places: the seven churches, epistle destinations, gospel and Acts sites.
+// Year is when the place enters the story, so they appear as the narrative reaches them.
+const CH7 = [['Ephesus',27.34,37.95],['Smyrna',27.14,38.42],['Pergamum',27.18,39.12],
+  ['Thyatira',27.84,38.92],['Sardis',28.04,38.49],['Philadelphia',28.52,38.35],['Laodicea',29.11,37.84]];
+CH7.forEach(([n, lon, lat]) =>
+  SITES.push(S('ch7_' + n, n, lon, lat, 95, 'scripture', 'churches', 'Seven churches', '#a1642a')));
+
+[['Rome',12.50,41.90,57],['Corinth',22.93,37.94,55],['Ephesus',27.34,37.95,62],
+ ['Philippi',24.29,41.01,61],['Colossae',29.26,37.79,61],['Thessalonica',22.94,40.64,51],
+ ['Galatia',32.86,39.93,49],['Crete',25.14,35.34,64]].forEach(([n, lon, lat, y]) =>
+  SITES.push(S('ep_' + n, n, lon, lat, y, 'scripture', 'epistles', 'Epistle destinations', '#4a7c59')));
+
+[['Damascus',36.30,33.51,34,"Paul's conversion"],['Tarsus',34.90,36.92,35,"Paul's home"],
+ ['Antioch',36.20,36.20,42,'believers first called Christians'],
+ ['Patmos',26.55,37.31,95,"John's exile"],['Caesarea',34.90,32.50,40,'Cornelius'],
+ ['Joppa',34.75,32.05,40,"Peter's vision"]].forEach(([n, lon, lat, y, note]) =>
+  SITES.push(S('nt_' + n, n, lon, lat, y, 'scripture', 'places', 'Acts places', '#6b7280', note)));
+
 SITES.push(
-  { id: 'stephen', name: 'Stephen stoned', lon: 35.22, lat: 31.79, mode: 'apostolic',
-    src: 'scripture', year: 34, group: 'deaths', groupLabel: 'Deaths', color: NARR_C.death },
-  { id: 'jamesZ', name: 'James executed', lon: 35.24, lat: 31.77, mode: 'apostolic',
-    src: 'scripture', year: 44, group: 'deaths', groupLabel: 'Deaths', color: NARR_C.death },
-  { id: 'jamesJ', name: 'James the Just', lon: 35.19, lat: 31.83, mode: 'apostolic',
-    src: 'historical', year: 62, group: 'deaths', groupLabel: 'Deaths', color: NARR_C.death },
-  { id: 'thomasD', name: 'Thomas martyred', lon: 80.28, lat: 13.03, mode: 'apostolic',
-    src: 'tradition', year: 72, group: 'deaths', groupLabel: 'Deaths', color: NARR_C.death }
+  S('stephen', 'Stephen stoned', 35.22, 31.81, 34, 'scripture', 'deaths', 'Deaths', NARR_C.death,
+    'the first martyr, Acts 7'),
+  S('jamesZ', 'James executed', 35.25, 31.75, 44, 'scripture', 'deaths', 'Deaths', NARR_C.death,
+    'first of the Twelve to die, Acts 12:2')
 );
 const narrativeOn = {};            // group id -> bool, driven by the toggle panel
 let showTradition = true;
@@ -1451,6 +1501,9 @@ function drawCities(year) {
   const zoomLabels = cam.z >= 2.2;
   narrativeLabelBoxes = [];              // shared collision budget with narrative labels (#15)
   const labelBoxes = narrativeLabelBoxes; // placed label rects, so labels don't collide
+  // Where a narrative site already names a place, suppress the generic city marker. Compared
+  // by position, not name, so spelling variants (Thessalonica / Thessaloniki) dedupe too.
+  const claimed = SITES.filter(s => s.mode === modeId && groupOn(s.group) && srcVisible(s.src) && year >= s.year);
   ctx.textBaseline = 'middle';
   ctx.font = `${11 * DPR}px system-ui, sans-serif`;
   for (const [name, lon, lat, cy, rank] of CITIES) {
@@ -1474,6 +1527,7 @@ function drawCities(year) {
     if (dead && !anim) continue;                     // fallen cities leave the map
     // rank LOD: minor cities (rank 2) always debut visibly, then persist only under zoom
     if (!anim && (rank || 1) > 1 && cam.z < 2 && age > 90) continue;
+    if (claimed.length && claimed.some(s => Math.abs(s.lon - lon) < 0.5 && Math.abs(s.lat - lat) < 0.5)) continue;
     const x = tx(px(lon)), y = ty(py(lat));
     if (x < -60 || x > W + 60 || y < -20 || y > H + 20) continue;
 
