@@ -373,21 +373,27 @@ const REGIONS = [
 {n:"Oceania", pts:[[151.2,-33.9,.9],[144.9,-37.8,.7],[174.8,-36.8,.4],[147.2,-9.4,.5],[153,-27.5,.4,1824],[115.9,-32,.3,1829]],
  s:[0,0,0,0,0,0,0,0,0,0,0,0,.001,.02,.25,.65,.85,.68,.52],
  p:[1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,6,13,31,45]},
-// City-scale overlay regions (issue #2): tight sigma (5th point element, in grid cells) puts
-// honest local demographics on top of the broad regional field. si given inline.
-{n:"Wayne County (Dearborn)", pts:[[-83.1,42.35,1,1900,.8]],
+// City-scale overlay regions (issues #2/#6): tight sigma (5th point element, in grid cells;
+// degrees = 2x) puts honest local demographics on top of the broad regional field at their
+// TRUE footprint. Mass-conserving anti-aliasing dilutes them into the coarse cell at world
+// view and sharpens them to city scale under zoom. si given inline.
+{n:"Wayne County", pts:[[-83.05,42.33,1,1900,.25]],
  s:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.8,.75,.55,.45],
- si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.002,.02,.08,.12],
- p:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.8,1.6,1.8,1.85]},
-{n:"Greater Paris", pts:[[2.3,48.9,1,1850,1.1]],
+ si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.008,.035,.04],
+ p:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.8,1.6,1.75,1.75]},
+{n:"Dearborn (city)", pts:[[-83.18,42.32,1,1900,.05]],
+ s:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.85,.75,.45,.3],
+ si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.05,.3,.5],
+ p:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.004,.095,.098,.11]},
+{n:"Greater Paris", pts:[[2.3,48.9,1,1850,.15]],
  s:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,.95,.9,.8,.55,.42],
  si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.003,.03,.13,.16],
  p:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,2.5,2.8,3]},
-{n:"Ruhr Valley", pts:[[7.2,51.5,1,1850,1.1]],
+{n:"Ruhr Valley", pts:[[7.2,51.5,1,1850,.25]],
  s:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,.95,.9,.8,.6,.5],
  si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.002,.01,.1,.13],
  p:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,.8,2,2.5,2.5,2.5]},
-{n:"Greater London", pts:[[-.1,51.5,1,1800,1.1]],
+{n:"Greater London", pts:[[-.1,51.5,1,1800,.175]],
  s:[0,0,0,0,0,0,0,0,0,0,0,0,0,.9,.9,.85,.7,.5,.42],
  si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.01,.1,.15],
  p:[0,0,0,0,0,0,0,0,0,0,0,0,0,1,2.5,4,4,4,4.3]}
@@ -507,29 +513,36 @@ domainCells.forEach((i, k) => {
   for (let d = 0; d < 4; d++) NB[k*4+d] = (cand[d] >= 0 && DOMAIN[cand[d]]) ? cand[d] : -1;
 });
 
-// Precompute gaussian splat targets for every region weight point
+// Precompute gaussian splat targets for every region weight point (2-degree grid, used by
+// the simulation), plus an analytic point list APTS for the viewport-fitted render field.
+// landFrac = share of a point's gaussian mass that falls on land; the analytic field divides
+// by it so island and coastal regions keep the same brightness the land-normalized splats had.
 const SIGMA = 3.2;
 const SPLATS = []; // {ri, pw, y0, cells:[], w:[]}
+const APTS = [];   // {ri, pw, y0, lon, lat, sigDeg, landFrac}
 REGIONS.forEach((reg, ri) => {
   for (const [lon, lat, pw, y0, sig] of reg.pts) {
     const sigma = sig || SIGMA;                 // optional per-point sigma (grid cells) for city-scale blobs
     const rad = Math.max(3, Math.ceil(sigma * 2.8));
     const cgx = Math.floor((lon + 180) / 2), cgy = Math.floor((90 - lat) / 2);
     const cells = [], w = [];
-    let sum = 0;
+    let sum = 0, sumAll = 0;
     for (let dy = -rad; dy <= rad; dy++) {
       const gy = cgy + dy; if (gy < 0 || gy >= GH) continue;
       for (let dx = -rad; dx <= rad; dx++) {
         const gx = (cgx + dx + GW) % GW;
         const i = gy * GW + gx;
-        if (!LAND[i]) continue;
         const g = Math.exp(-(dx*dx + dy*dy) / (2 * sigma * sigma));
         if (g < 0.012) continue;
+        sumAll += g;
+        if (!LAND[i]) continue;
         cells.push(i); w.push(g); sum += g;
       }
     }
     for (let k = 0; k < w.length; k++) w[k] /= (sum || 1);
     SPLATS.push({ ri, pw, y0: y0 || 0, cells, w });
+    APTS.push({ ri, pw, y0: y0 || 0, lon, lat, sigDeg: sigma * 2,
+                landFrac: sumAll > 0 ? Math.max(0.05, sum / sumAll) : 1 });
   }
 });
 // weight of a point at a given year: 0 before founding, ramping to full over 60 years
@@ -725,14 +738,87 @@ function simShareAt(snaps, i, year) {
   const s0 = f | 0, t = f - s0;
   return (snaps[s0 * NCELL + i] * (1 - t) + snaps[(s0 + 1) * NCELL + i] * t) / 255;
 }
+// bilinear sample of the 2-degree sim grid at an arbitrary lon/lat (phase B: the sim stays
+// coarse; fine-zoom spatial detail comes from the analytic history field)
+function simShareLL(snaps, lon, lat, year) {
+  if (!simReady) return 0;
+  const f = Math.min(NSNAP - 1.001, Math.max(0, (year - Y0) / SNAP_EVERY));
+  const ft = f - (f | 0);
+  const o0 = (f | 0) * NCELL, o1 = o0 + NCELL;
+  const gx = (lon + 180) / 2 - 0.5, gy = (90 - lat) / 2 - 0.5;
+  const x0 = Math.floor(gx), y0 = Math.floor(gy);
+  const fx = gx - x0, fy = gy - y0;
+  let v = 0;
+  for (let dy = 0; dy < 2; dy++) {
+    const cy = Math.min(GH - 1, Math.max(0, y0 + dy));
+    const wy = dy ? fy : 1 - fy;
+    for (let dx = 0; dx < 2; dx++) {
+      const cx = (x0 + dx + GW) % GW;
+      const i = cy * GW + cx;
+      v += wy * (dx ? fx : 1 - fx) * (snaps[o0 + i] * (1 - ft) + snaps[o1 + i] * ft);
+    }
+  }
+  return v / 255;
+}
 
 /* ============ rendering ============ */
 const canvas = document.getElementById('map');
 const ctx = canvas.getContext('2d');
+// Viewport-fitted render field (issue #6, phase B): a ~320-wide grid re-evaluated
+// analytically over whatever the camera sees, so resolution refines as you zoom.
 const fieldCanvas = document.createElement('canvas');
-fieldCanvas.width = GW; fieldCanvas.height = GH;
 const fctx = fieldCanvas.getContext('2d');
-const fimg = fctx.createImageData(GW, GH);
+const FW = 320;
+let FH = 0, fimg = null, viewDens = null, viewNumC = null, viewNumM = null;
+function ensureViewBuffers() {
+  const fh = Math.max(16, Math.round(FW * H / W));
+  if (fh === FH && fimg) return;
+  FH = fh;
+  fieldCanvas.width = FW; fieldCanvas.height = FH;
+  fimg = fctx.createImageData(FW, FH);
+  viewDens = new Float32Array(FW * FH);
+  viewNumC = new Float32Array(FW * FH);
+  viewNumM = new Float32Array(FW * FH);
+}
+// Evaluate the analytic gaussian field on the viewport grid. Mass-conserving anti-aliasing:
+// a point narrower than the current cell size renders with sigma clamped up to ~0.7 cells
+// and amplitude scaled down by the area ratio, so city-scale points dilute honestly at
+// world view and sharpen to their true footprint as the grid refines.
+function buildViewField(year, lon0, latTopV, cw, ch) {
+  viewDens.fill(0); viewNumC.fill(0); viewNumM.fill(0);
+  buildRegWeights(year);
+  const cs = Math.max(cw, ch);
+  for (const pt of APTS) {
+    const pw = ptWeight(pt, year);
+    if (pw <= 0 || regWeightSum[pt.ri] <= 0) continue;
+    const reg = REGIONS[pt.ri];
+    const pop = interp(reg.p, year) * pw / regWeightSum[pt.ri];
+    if (pop <= 0) continue;
+    const shC = interp(reg.s, year), shM = interp(reg.si, year);
+    const sig = Math.max(pt.sigDeg, 0.7 * cs);
+    const amp = pop * 4 / (2 * Math.PI * sig * sig * pt.landFrac); // mass per 2-deg-cell-equivalent
+    const rad = sig * 2.9;
+    const i0 = Math.max(0, Math.floor((pt.lon - rad - lon0) / cw));
+    const i1 = Math.min(FW - 1, Math.ceil((pt.lon + rad - lon0) / cw));
+    const j0 = Math.max(0, Math.floor((latTopV - (pt.lat + rad)) / ch));
+    const j1 = Math.min(FH - 1, Math.ceil((latTopV - (pt.lat - rad)) / ch));
+    if (i0 > i1 || j0 > j1) continue;
+    const inv2s2 = 1 / (2 * sig * sig);
+    for (let j = j0; j <= j1; j++) {
+      const dy = (latTopV - (j + 0.5) * ch) - pt.lat;
+      const dy2 = dy * dy, row = j * FW;
+      for (let i = i0; i <= i1; i++) {
+        const dx = (lon0 + (i + 0.5) * cw) - pt.lon;
+        const g = Math.exp(-(dx * dx + dy2) * inv2s2);
+        if (g < 0.008) continue;
+        const d = amp * g;
+        viewDens[row + i] += d;
+        viewNumC[row + i] += d * shC;
+        viewNumM[row + i] += d * shM;
+      }
+    }
+  }
+}
 
 // Sequential ramps, low -> high, per theme. Blue = Christianity (validated reference palette);
 // red = Islam (diverging counterpart, same lightness march).
@@ -772,7 +858,7 @@ const py = lat => (LAT_TOP - lat) / (LAT_TOP - LAT_BOT) * BH;
 /* ============ camera (issue #6, phase A) ============ */
 const CAM_LAT0 = (LAT_TOP + LAT_BOT) / 2;
 const cam = { lon: 0, lat: CAM_LAT0, z: 1 };
-const ZMIN = 1, ZMAX = 24, LOD_Z = 3;   // past LOD_Z the 50m coastline takes over
+const ZMIN = 1, ZMAX = 60, LOD_Z = 3;   // past LOD_Z the 50m coastline takes over
 // base-canvas px -> screen px under the camera
 const tx = bx => (bx - px(cam.lon)) * cam.z + W / 2;
 const ty = by => (by - py(cam.lat)) * cam.z + H / 2;
@@ -875,28 +961,40 @@ function cssVar(name) { return getComputedStyle(document.querySelector('.viz-roo
 
 const MIXT = 0.02; // both faiths above this share = genuine co-presence, rendered as a blend
 function draw(year) {
-  buildFields(year);
+  buildFields(year);        // 2-degree pass still supplies densMax (global brightness scale)
+  ensureViewBuffers();
+  // viewport bounds in degrees, small margin against seams at the edges
+  const lonSpan = 360 / cam.z * 1.02;
+  const latSpan = (H / cam.z) / BH * (LAT_TOP - LAT_BOT) * 1.02;
+  const lon0 = cam.lon - lonSpan / 2, latTopV = cam.lat + latSpan / 2;
+  const cw = lonSpan / FW, ch = latSpan / FH;
+  buildViewField(year, lon0, latTopV, cw, ch);
+
   const urb = params.urban, blend = params.blend;
   const showC = layers.c, showM = layers.m;
   const snapsC = SIMS[0].snaps, snapsM = SIMS[1].snaps;
   const data = fimg.data;
-  for (let i = 0; i < NCELL; i++) {
-    const o = i * 4;
-    if (!LAND[i] || densF[i] <= 1e-6 || (!showC && !showM)) {
+  for (let idx = 0; idx < FW * FH; idx++) {
+    const o = idx * 4;
+    const d = viewDens[idx];
+    if (d <= 1e-6 || (!showC && !showM)) {
       data[o] = data[o+1] = data[o+2] = data[o+3] = 0;
       continue;
     }
+    const hC = viewNumC[idx] / d, hM = viewNumM[idx] / d;
     // population-weighted: saturating density factor (cells above ~12% of world max read full strength)
     // per capita: share alone wherever meaningfully inhabited (soft gate keeps empty deserts dark)
     const densFac = params.mode === 'percap'
-      ? Math.min(1, densF[i] / (0.02 * densMax))
-      : Math.pow(Math.min(1, densF[i] / (0.12 * densMax)), urb);
+      ? Math.min(1, d / (0.02 * densMax))
+      : Math.pow(Math.min(1, d / (0.12 * densMax)), urb);
     // linear shares decide dominance and mixing; log-space blend drives brightness
-    const simC = simShareAt(snapsC, i, year), simM = simShareAt(snapsM, i, year);
-    const sC = showC ? blend * histShareC[i] + (1 - blend) * simC : 0;
-    const sM = showM ? blend * histShareM[i] + (1 - blend) * simM : 0;
-    const iC = showC ? (blend * logT(histShareC[i]) + (1 - blend) * logT(simC)) * densFac : 0;
-    const iM = showM ? (blend * logT(histShareM[i]) + (1 - blend) * logT(simM)) * densFac : 0;
+    const lonC = lon0 + ((idx % FW) + 0.5) * cw;
+    const latC = latTopV - (((idx / FW) | 0) + 0.5) * ch;
+    const simC = simShareLL(snapsC, lonC, latC, year), simM = simShareLL(snapsM, lonC, latC, year);
+    const sC = showC ? blend * hC + (1 - blend) * simC : 0;
+    const sM = showM ? blend * hM + (1 - blend) * simM : 0;
+    const iC = showC ? (blend * logT(hC) + (1 - blend) * logT(simC)) * densFac : 0;
+    const iM = showM ? (blend * logT(hM) + (1 - blend) * logT(simM)) * densFac : 0;
     if (showC && showM && sC >= MIXT && sM >= MIXT) {
       // co-presence: blend the two ramps by relative share, gently minority-weighted
       // (exponent < 1) so a 10-15% minority reads as a tint instead of vanishing
@@ -936,8 +1034,9 @@ function draw(year) {
   ctx.save();
   ctx.clip(lp, 'evenodd');
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-  const sy = (90 - LAT_TOP) / 2, sh = (LAT_TOP - LAT_BOT) / 2;
-  ctx.drawImage(fieldCanvas, 0, sy, GW, sh, 0, 0, W, BH);
+  // the view field covers the viewport rect (in base coords) rather than the whole world
+  const bx0 = px(lon0), by0 = py(latTopV);
+  ctx.drawImage(fieldCanvas, bx0, by0, px(lon0 + lonSpan) - bx0, py(latTopV - latSpan) - by0);
   ctx.restore();
   ctx.strokeStyle = cssVar('--baseline');
   ctx.lineWidth = Math.max(1, 0.7 * DPR) / cam.z;
