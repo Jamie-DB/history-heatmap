@@ -525,8 +525,30 @@ const CITIES = [
 ["Salt Lake City",-111.9,40.8,1847],["Seattle",-122.3,47.6,1851],["Denver",-105,39.7,1858],
 ["Minneapolis",-93.3,45,1867],["Phoenix",-112.1,33.4,1868],["Oklahoma City",-97.5,35.5,1889],
 ["Brasília",-47.9,-15.8,1960],["Detroit",-83,42.3,1701],["Dearborn",-83.2,42.3,1975],
-["Hamtramck",-83.06,42.4,1997],["Paterson",-74.17,40.92,1970],["Brussels",4.35,50.85,1964],
-["Marseille",5.37,43.3,1962],["Bradford",-1.75,53.8,1961],["Malmö",13,55.6,1972]
+["Hamtramck",-83.06,42.4,1997,2],["Paterson",-74.17,40.92,1970,2],["Brussels",4.35,50.85,1964,2],
+["Marseille",5.37,43.3,1962,2],["Bradford",-1.75,53.8,1961,2],["Malmö",13,55.6,1972,2],
+// Old-world densification (issue #9). Activation year = when the city becomes significant
+// to the story, not founding date. rank 2 = shown at world view only during its debut,
+// persistent under zoom.
+["Athens",23.73,37.98,50,2],["Thessaloniki",22.94,40.64,50,2],
+["Muziris",76.2,10.22,52,2],["Palmyra",38.28,34.55,100,2],["Meroë",33.75,16.93,100,2],
+["Ctesiphon",44.58,33.09,226,1],["Dura-Europos",40.73,34.75,230,2],
+["Nisibis",41.22,37.07,350,2],["Hippo",7.77,36.9,396,2],["Gondishapur",48.52,32.28,490,2],
+["Dongola",30.48,18.22,543,2],["Chang'an",108.9,34.27,581,1],
+["Mecca",39.83,21.42,622,1],["Medina",39.61,24.47,622,1],["Damascus",36.3,33.51,661,1],
+["Kairouan",10.1,35.68,670,2],["Cordoba",-4.78,37.88,756,1],["Baghdad",44.4,33.34,762,1],
+["Fez",-4.98,34.06,789,2],["Samarkand",66.96,39.65,850,2],["Preslav",26.82,43.16,893,2],
+["Cairo",31.24,30.05,969,1],["Kilwa",39.5,-8.96,1000,2],["Kano",8.52,12,1000,2],
+["Marrakesh",-7.98,31.63,1062,2],["Timbuktu",-3,16.77,1100,1],["Konya",32.48,37.87,1100,2],
+["Vienna",16.37,48.21,1155,2],["Lalibela",39.04,12.03,1185,1],["Delhi",77.2,28.61,1206,1],
+["Granada",-3.6,37.18,1238,2],["Khanbaliq",116.4,39.9,1294,1],["Mogadishu",45.34,2.04,1300,2],
+["Bursa",29.06,40.18,1326,2],["Malacca",102.25,2.2,1400,2],["Belgrade",20.46,44.82,1456,2],
+["Gao",-.05,16.27,1468,2],["Mbanza-Kongo",14.25,-6.27,1491,1],["Buda",19.04,47.5,1000,2],
+["Valletta",14.51,35.9,1530,2],["Macau",113.54,22.19,1557,2],["Nagasaki",129.87,32.75,1571,1],
+["Isfahan",51.68,32.65,1598,2],["Freetown",-13.23,8.48,1792,1],["Monrovia",-10.8,6.3,1822,2],
+["Zanzibar",39.19,-6.16,1832,2],["Kampala",32.58,.31,1877,1],["Léopoldville",15.32,-4.32,1881,1],
+["Nairobi",36.82,-1.29,1899,2],["Jos",8.89,9.9,1900,2],["Riyadh",46.72,24.63,1932,2],
+["Karachi",67,24.86,1947,1],["Dubai",55.3,25.27,1971,2]
 ];
 
 // Timeline event ticks (v1 hooks for a richer events layer later)
@@ -1132,11 +1154,13 @@ function draw(year) {
   const labelBoxes = [];   // placed label rects, so persistent labels don't collide
   ctx.textBaseline = 'middle';
   ctx.font = `${11 * DPR}px system-ui, sans-serif`;
-  for (const [name, lon, lat, cy] of CITIES) {
+  for (const [name, lon, lat, cy, rank] of CITIES) {
     if (year < cy) continue;
+    const age = year - cy;
+    // rank LOD: minor cities (rank 2) always debut visibly, then persist only under zoom
+    if ((rank || 1) > 1 && cam.z < 2 && age > 90) continue;
     const x = tx(px(lon)), y = ty(py(lat));
     if (x < -60 || x > W + 60 || y < -20 || y > H + 20) continue;
-    const age = year - cy;
     ctx.beginPath();
     ctx.arc(x, y, 1.6 * DPR, 0, 7);
     ctx.fillStyle = ink;
