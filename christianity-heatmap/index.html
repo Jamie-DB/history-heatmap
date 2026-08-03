@@ -168,8 +168,8 @@
 <div class="viz-root">
   <header>
     <div>
-      <h1>Christianity Across the World, AD 33 to 2026</h1>
-      <div class="subtitle">Estimated share of local population through two millennia: Christianity in blue, Islam in red, genuine co-presence in purple. Historical anchor data blended with a live diffusion model; drag the sliders to play.</div>
+      <h1 id="pageTitle">Christianity Across the World, AD 33 to 2026</h1>
+      <div class="subtitle" id="pageSub">Estimated share of local population through two millennia: Christianity in blue, Islam in red, genuine co-presence in purple. Historical anchor data blended with a live diffusion model; drag the sliders to play.</div>
     </div>
     <button class="theme-btn" id="themeBtn">Theme</button>
   </header>
@@ -199,6 +199,11 @@
 
   <div class="controls">
     <button class="play-btn" id="playBtn" aria-label="Play or pause">&#9654;</button>
+    <span class="ctl-label">View</span>
+    <select id="modePicker">
+      <option value="main" selected>World demographics</option>
+      <option value="apostolic">Apostolic Age</option>
+    </select>
     <span class="ctl-label">Speed</span>
     <select id="speedSel">
       <option value="10">10 yrs/sec</option>
@@ -206,19 +211,19 @@
       <option value="60">60 yrs/sec</option>
       <option value="140">140 yrs/sec</option>
     </select>
-    <span class="ctl-label">Display</span>
-    <select id="modeSel">
+    <span class="ctl-label heat-only">Display</span>
+    <select id="modeSel" class="heat-only">
       <option value="pop" selected>Population-weighted</option>
       <option value="percap">Per capita</option>
     </select>
-    <span class="ctl-label">Frontier</span>
-    <select id="frontierSel">
+    <span class="ctl-label heat-only">Frontier</span>
+    <select id="frontierSel" class="heat-only">
       <option value="blend" selected>Blend</option>
       <option value="majority">Majority</option>
     </select>
-    <span class="ctl-label">Layers</span>
-    <label class="chk"><input type="checkbox" id="layerC" checked> Christianity</label>
-    <label class="chk"><input type="checkbox" id="layerM" checked> Islam</label>
+    <span class="ctl-label heat-only">Layers</span>
+    <label class="chk heat-only"><input type="checkbox" id="layerC" checked> Christianity</label>
+    <label class="chk heat-only"><input type="checkbox" id="layerM" checked> Islam</label>
     <span class="ctl-label" id="hoverReadout"></span>
   </div>
 
@@ -228,7 +233,7 @@
     <div class="tl-handle" id="tlHandle"></div>
   </div>
 
-  <div class="panel" id="params">
+  <div class="panel heat-only" id="params">
     <div class="param">
       <label>Growth rate <output id="oGrowth">1.0&times;</output></label>
       <input type="range" id="pGrowth" min="0.3" max="2.5" step="0.05" value="1">
@@ -256,7 +261,7 @@
     </div>
   </div>
 
-  <div class="legend">
+  <div class="legend heat-only">
     <span class="legend-title">Est. share of local population</span>
     <div id="legC">
       <div class="legend-name">Christianity</div>
@@ -272,11 +277,11 @@
     <span class="legend-title" style="color:var(--muted)" id="legendNote">log-scaled; brightness also weights population density</span>
   </div>
 
-  <details>
+  <details class="heat-only">
     <summary>Data tables: estimated Christian and Muslim share by region</summary>
     <div class="inner"><table id="dataTable"></table><table id="dataTableM" style="margin-top:14px"></table></div>
   </details>
-  <details>
+  <details class="heat-only">
     <summary>About this model</summary>
     <div class="inner notes">
       <p>This is a toy historical model, not a precise dataset. Each of 32 world regions carries hand-curated anchor estimates of the Christian share of its population at 19 moments between AD 33 and 2026, drawn from standard scholarship: Rodney Stark's early-growth estimates (roughly 40% per decade to AD 300), dated conversions (Armenia 301, Ethiopia c. 340, Rus 988), decline curves after the Islamic conquests, the colonial-era spread to the Americas, and modern survey figures (Pew, World Christian Database).</p>
@@ -630,7 +635,10 @@ const ROUTES = [
 
 /* ============ grid + geometry ============ */
 const GW = 180, GH = 90, NCELL = GW * GH;   // 2-degree global grid
-const Y0 = 33, Y1 = 2026, YSPAN = Y1 - Y0;
+// The SIMULATION's domain, pinned to the demographic visualization. Deliberately separate
+// from the ACTIVE MODE's domain (see MODES): entering a mode with another year range must
+// never reindex the sim snapshots. Only main-mode code may treat these as "the" timeline.
+const SIM_Y0 = 33, SIM_Y1 = 2026, SIM_YSPAN = SIM_Y1 - SIM_Y0;
 const LAT_TOP = 84, LAT_BOT = -58;          // rendered viewport (crops poles)
 
 const LAND = new Uint8Array(NCELL);
@@ -789,7 +797,7 @@ function buildPressure(year, key) {
 
 /* ============ simulation ============ */
 const SIM_DT = 2, SNAP_EVERY = 8;
-const NSNAP = Math.floor(YSPAN / SNAP_EVERY) + 2;
+const NSNAP = Math.floor(SIM_YSPAN / SNAP_EVERY) + 2;
 let simReady = false, simToken = 0;
 const params = { growth: 1, spread: 1, urban: 0.55, decline: 1, blend: 0.8, mode: 'pop', frontier: 'blend' };
 // contested-band ratios (issue #8): a cell blends purple only when the larger share is
@@ -818,7 +826,7 @@ function runSimulation() {
     const sim = SIMS[simIdx];
     c.fill(0); c2.fill(0);
     sim.snaps.fill(0);
-    year = Y0; snapIdx = 0; nextFieldRefresh = Y0;
+    year = SIM_Y0; snapIdx = 0; nextFieldRefresh = SIM_Y0;
   }
   function saveSnap() {
     const off = snapIdx * NCELL, snaps = SIMS[simIdx].snaps;
@@ -829,7 +837,7 @@ function runSimulation() {
     if (token !== simToken) return; // superseded by newer run
     const sim = SIMS[simIdx];
     const rel = sim.key === 's' ? 'c' : 'm';
-    const until = Math.min(Y1, year + 120);
+    const until = Math.min(SIM_Y1, year + 120);
     while (year < until) {
       if (year === sim.seedYear || (year < sim.seedYear && year + SIM_DT > sim.seedYear)) {
         for (const [sc, sv] of sim.seeds) c[sc] = Math.max(c[sc], sv);
@@ -876,11 +884,11 @@ function runSimulation() {
           if (tag === rel && year >= ry) c[b] = Math.min(1, c[b] + SIM_DT * 0.012 * params.spread * c[a] * (1 - c[b]));
         }
       }
-      while (year + SIM_DT > Y0 + snapIdx * SNAP_EVERY && snapIdx < NSNAP) saveSnap();
+      while (year + SIM_DT > SIM_Y0 + snapIdx * SNAP_EVERY && snapIdx < NSNAP) saveSnap();
       year += SIM_DT;
     }
-    if (year < Y1) {
-      const frac = (simIdx + (year - Y0) / YSPAN) / SIMS.length;
+    if (year < SIM_Y1) {
+      const frac = (simIdx + (year - SIM_Y0) / SIM_YSPAN) / SIMS.length;
       status.textContent = 'computing model… ' + Math.round(100 * frac) + '%';
       requestAnimationFrame(step);
     } else {
@@ -897,7 +905,7 @@ function runSimulation() {
 }
 function simShareAt(snaps, i, year) {
   if (!simReady) return 0;
-  const f = Math.min(NSNAP - 1.001, Math.max(0, (year - Y0) / SNAP_EVERY));
+  const f = Math.min(NSNAP - 1.001, Math.max(0, (year - SIM_Y0) / SNAP_EVERY));
   const s0 = f | 0, t = f - s0;
   return (snaps[s0 * NCELL + i] * (1 - t) + snaps[(s0 + 1) * NCELL + i] * t) / 255;
 }
@@ -905,7 +913,7 @@ function simShareAt(snaps, i, year) {
 // coarse; fine-zoom spatial detail comes from the analytic history field)
 function simShareLL(snaps, lon, lat, year) {
   if (!simReady) return 0;
-  const f = Math.min(NSNAP - 1.001, Math.max(0, (year - Y0) / SNAP_EVERY));
+  const f = Math.min(NSNAP - 1.001, Math.max(0, (year - SIM_Y0) / SNAP_EVERY));
   const ft = f - (f | 0);
   const o0 = (f | 0) * NCELL, o1 = o0 + NCELL;
   const gx = (lon + 180) / 2 - 0.5, gy = (90 - lat) / 2 - 0.5;
@@ -1132,6 +1140,7 @@ function cssVar(name) { return getComputedStyle(document.querySelector('.viz-roo
 
 const MIXT = 0.02; // both faiths above this share = genuine co-presence, rendered as a blend
 function draw(year) {
+  if (!M().layers.heat) { drawBase(); return; }   // narrative modes render map only (#14)
   buildFields(year);        // 2-degree pass still supplies densMax (global brightness scale)
   ensureViewBuffers();
   // viewport bounds in degrees, small margin against seams at the edges
@@ -1189,7 +1198,13 @@ function draw(year) {
     }
   }
   fctx.putImageData(fimg, 0, 0);
+  paintMap({ lon0, latTopV, lonSpan, latSpan });
+  drawCities(year);
+}
 
+// Map chrome: surface, land, optional heat inset, coastline. `heatRect` is the viewport
+// rectangle the field canvas covers, or null in narrative modes that render no heat (#14).
+function paintMap(heatRect) {
   // coastline LOD: 110m at world view, 50m once zoomed past the threshold
   const fine = cam.z >= LOD_Z;
   if (fine) ensurePaths50();
@@ -1204,18 +1219,26 @@ function draw(year) {
   ctx.translate(-px(cam.lon), -py(cam.lat));
   ctx.fillStyle = cssVar('--land');
   ctx.fill(lp, 'evenodd');
-  // heat layer, clipped to land, upsampled with smoothing
-  ctx.save();
-  ctx.clip(lp, 'evenodd');
-  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-  // the view field covers the viewport rect (in base coords) rather than the whole world
-  const bx0 = px(lon0), by0 = py(latTopV);
-  ctx.drawImage(fieldCanvas, bx0, by0, px(lon0 + lonSpan) - bx0, py(latTopV - latSpan) - by0);
-  ctx.restore();
+  if (heatRect) {
+    // heat layer, clipped to land, upsampled with smoothing
+    const { lon0, latTopV, lonSpan, latSpan } = heatRect;
+    ctx.save();
+    ctx.clip(lp, 'evenodd');
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    // the view field covers the viewport rect (in base coords) rather than the whole world
+    const bx0 = px(lon0), by0 = py(latTopV);
+    ctx.drawImage(fieldCanvas, bx0, by0, px(lon0 + lonSpan) - bx0, py(latTopV - latSpan) - by0);
+    ctx.restore();
+  }
   ctx.strokeStyle = cssVar('--baseline');
   ctx.lineWidth = Math.max(1, 0.7 * DPR) / cam.z;
   ctx.stroke(cp);
   ctx.restore();
+}
+
+function drawBase() { paintMap(null); drawCities(year); }
+
+function drawCities(year) {
 
   // city markers: constant screen size regardless of zoom; labels fade after ~90 years
   // at world view, but persist while zoomed in (label level-of-detail)
@@ -1308,42 +1331,89 @@ function draw(year) {
   }
 }
 
-/* ============ timeline (non-linear) ============ */
-const TL_EXP = 0.55;
-const yearToPos = y => Math.pow((y - Y0) / YSPAN, TL_EXP);
-const posToYear = p => Y0 + YSPAN * Math.pow(Math.min(1, Math.max(0, p)), 1 / TL_EXP);
+/* ============ visualization modes (issue #14) ============ */
+// Mutually exclusive visualizations sharing the map, camera, timeline widget, and render
+// code, differing in year domain, pace, timeline ticks, active layers, and HUD blocks.
+// Nothing here may touch SIM_Y0/SIM_Y1: the simulation always spans the demographic era.
+const NT_EVENTS = [   // stub tick set; phase 3 (#16) fills in the apostolic content
+  [33,"Pentecost"],[34,"Paul's conversion"],[44,"James executed"],[46,"1st journey"],
+  [50,"Jerusalem council"],[53,"3rd journey"],[60,"Paul reaches Rome"],[64,"Fire of Rome"],
+  [70,"Fall of Jerusalem"],[95,"Patmos"]
+];
+const MODES = {
+  main: {
+    label: 'World demographics',
+    title: 'Christianity Across the World, AD 33 to 2026',
+    sub: 'Estimated share of local population through two millennia: Christianity in blue, Islam in red, genuine co-presence in purple. Historical anchor data blended with a live diffusion model; drag the sliders to play.',
+    y0: 33, y1: 2026, tlExp: 0.55, speed: 25,
+    ticks: EVENTS, marks: [33, 500, 1000, 1500, 2026],
+    layers: { heat: true, cities: true }, hud: { pop: true }
+  },
+  apostolic: {
+    label: 'Apostolic Age',
+    title: 'The Apostolic Age, AD 30 to 100',
+    sub: 'The first seventy years, at readable pace: the journeys, the churches, and the deaths of the apostles. A narrative layer over the same map, with the demographic model set aside.',
+    y0: 30, y1: 100, tlExp: 1, speed: 0.5,
+    ticks: NT_EVENTS, marks: [30, 50, 75, 100],
+    layers: { heat: false, cities: true }, hud: { pop: false }
+  }
+};
+let modeId = 'main';
+const M = () => MODES[modeId];
+const modeSaved = {};   // per-mode {year, playing, speed, cam} across switches
+
+const yearToPos = y => {
+  const m = M(), span = m.y1 - m.y0;
+  return Math.pow(Math.min(1, Math.max(0, (y - m.y0) / span)), m.tlExp);
+};
+const posToYear = p => {
+  const m = M(), span = m.y1 - m.y0;
+  return m.y0 + span * Math.pow(Math.min(1, Math.max(0, p)), 1 / m.tlExp);
+};
+const fmtYear = y => {
+  const r = Math.round(y);
+  return r < 0 ? Math.abs(r) + ' BC' : r < 1000 ? 'AD ' + r : String(r);
+};
 const timeline = document.getElementById('timeline');
 const tlFill = document.getElementById('tlFill');
 const tlHandle = document.getElementById('tlHandle');
-(function buildTimeline(){
-  for (const [ey, label] of EVENTS) {
+function buildTimeline() {
+  timeline.querySelectorAll('.tl-tick, .tl-tick-label, .tl-year').forEach(n => n.remove());
+  const m = M();
+  m.ticks.forEach(([ey, label], i) => {
     const p = yearToPos(ey) * 100;
     const tick = document.createElement('div');
     tick.className = 'tl-tick'; tick.style.left = p + '%';
     timeline.appendChild(tick);
     const lab = document.createElement('div');
     lab.className = 'tl-tick-label'; lab.style.left = p + '%';
-    lab.style.top = (EVENTS.indexOf([ey,label]), (EVENTS.findIndex(e => e[0] === ey) % 2) ? '42px' : '31px');
+    lab.style.top = (i % 2) ? '42px' : '31px';
     lab.textContent = ey + ' ' + label; lab.title = label + ', ' + ey;
     timeline.appendChild(lab);
-  }
-  for (const yy of [33, 500, 1000, 1500, 2026]) {
+  });
+  for (const yy of m.marks) {
     const lab = document.createElement('div');
     lab.className = 'tl-year'; lab.style.left = (yearToPos(yy) * 100) + '%';
     lab.style.top = '54px';
-    lab.textContent = yy === 33 ? 'AD 33' : yy;
+    lab.textContent = fmtYear(yy);
     timeline.appendChild(lab);
   }
-})();
+}
 
 /* ============ state & UI ============ */
-let year = Y0, playing = true, needsRedraw = true, lastT = 0;
-let speed = 25;
+let year = MODES.main.y0, playing = true, needsRedraw = true, lastT = 0;
+let speed = MODES.main.speed;
 // deep link: ?year=1500&play=1
 {
   const q = new URLSearchParams(location.search);
+  const mq = q.get('mode');   // ?mode=apostolic (year, view etc are read in that domain)
+  if (mq && MODES[mq]) {
+    modeId = mq;
+    document.getElementById('modePicker').value = mq;
+    year = M().y0; speed = M().speed; playing = false;
+  }
   if (q.has('year')) {
-    year = Math.min(Y1, Math.max(Y0, +q.get('year') || Y0));
+    year = Math.min(M().y1, Math.max(M().y0, +q.get('year') || M().y0));
     playing = q.get('play') === '1';
   }
   if (q.get('theme')) document.documentElement.setAttribute('data-theme', q.get('theme'));
@@ -1375,12 +1445,13 @@ const yearBig = document.getElementById('yearBig');
 const yearSub = document.getElementById('yearSub');
 
 function setYear(y) {
-  year = Math.min(Y1, Math.max(Y0, y));
+  year = Math.min(M().y1, Math.max(M().y0, y));
   needsRedraw = true;
 }
 function eraLabel(y) {
-  let best = EVENTS[0];
-  for (const e of EVENTS) if (e[0] <= y) best = e;
+  const T = M().ticks;
+  let best = T[0];
+  for (const e of T) if (e[0] <= y) best = e;
   return best[1] + ', ' + (best[0] < 100 ? 'AD ' + best[0] : best[0]);
 }
 /* ============ running population tally (issue #11) ============ */
@@ -1396,7 +1467,7 @@ function worldTotals(y) {
   }
   return { w, c, m };
 }
-const POP_MAX = worldTotals(Y1).w;
+const POP_MAX = worldTotals(SIM_Y1).w;
 // sqrt scale: on a linear scale the first millennium (~250M against 8B) is an invisible sliver
 const popScale = v => Math.max(0, Math.min(1, Math.sqrt(v / POP_MAX)));
 function fmtPop(mil) {
@@ -1427,9 +1498,9 @@ function stylePopBars() {
 }
 
 function updateChrome() {
-  yearBig.textContent = year < 1000 ? 'AD ' + Math.round(year) : String(Math.round(year));
+  yearBig.textContent = fmtYear(year);
   yearSub.textContent = eraLabel(year);
-  updatePopHud(year);
+  if (M().hud.pop) updatePopHud(year);
   const p = yearToPos(year) * 100;
   tlFill.style.width = p + '%';
   tlHandle.style.left = p + '%';
@@ -1437,7 +1508,7 @@ function updateChrome() {
 }
 
 playBtn.addEventListener('click', () => {
-  if (!playing && year >= Y1) year = Y0;
+  if (!playing && year >= M().y1) year = M().y0;
   playing = !playing; needsRedraw = true;
 });
 document.getElementById('speedSel').addEventListener('change', e => speed = +e.target.value);
@@ -1455,6 +1526,46 @@ document.getElementById('modeSel').addEventListener('change', e => {
     : 'log-scaled; brightness also weights population density';
   needsRedraw = true;
 });
+
+/* ============ mode switching (issue #14) ============ */
+const speedSel = document.getElementById('speedSel');
+function applyModeChrome() {
+  const m = M();
+  document.getElementById('pageTitle').textContent = m.title;
+  document.getElementById('pageSub').textContent = m.sub;
+  // panels that only mean something for the demographic visualization
+  document.querySelectorAll('.heat-only').forEach(el => {
+    el.style.display = m.layers.heat ? '' : 'none';
+  });
+  document.getElementById('popHud').style.display = m.hud.pop ? '' : 'none';
+  document.getElementById('simStatus').style.display = m.layers.heat ? '' : 'none';
+  // the speed menu is calibrated to a 2000-year span; short modes need their own scale
+  speedSel.innerHTML = (m.layers.heat
+    ? [[10,'10 yrs/sec'],[25,'25 yrs/sec'],[60,'60 yrs/sec'],[140,'140 yrs/sec']]
+    : [[0.25,'0.25 yrs/sec'],[0.5,'0.5 yrs/sec'],[1,'1 yr/sec'],[3,'3 yrs/sec']])
+    .map(([v, t]) => `<option value="${v}"${v === m.speed ? ' selected' : ''}>${t}</option>`).join('');
+  speed = m.speed;
+}
+function setMode(id) {
+  if (!MODES[id] || id === modeId) return;
+  modeSaved[modeId] = { year, playing, speed, cam: { ...cam } };
+  modeId = id;
+  document.getElementById('modePicker').value = id;
+  const saved = modeSaved[id];
+  const m = M();
+  year = saved ? saved.year : m.y0;
+  playing = saved ? saved.playing : false;
+  Object.assign(cam, saved ? saved.cam : { lon: 0, lat: CAM_LAT0, z: 1 });
+  clampCam();
+  applyModeChrome();
+  if (saved) speed = saved.speed;
+  speedSel.value = String(speed);
+  buildTimeline();
+  onCamChange();
+  updateChrome();
+  needsRedraw = true;
+}
+document.getElementById('modePicker').addEventListener('change', e => setMode(e.target.value));
 
 let scrubbing = false;
 function scrubTo(clientX) {
@@ -1672,7 +1783,7 @@ function frame(t) {
   lastT = t;
   if (playing && !scrubbing) {
     year += speed * dt;
-    if (year >= Y1) { year = Y1; playing = false; }
+    if (year >= M().y1) { year = M().y1; playing = false; }
     needsRedraw = true;
   }
   if (needsRedraw && W > 0) {
@@ -1686,6 +1797,8 @@ function frame(t) {
 buildLUT();
 buildLegend();
 stylePopBars();
+applyModeChrome();
+buildTimeline();
 resize();
 onCamChange();   // reflect a ?view= deep link in the reset button and cursor
 if (new URLSearchParams(location.search).get('fs') === '1') toggleFs();
