@@ -1,6 +1,14 @@
-# Christianity Heatmap (AD 33 to 2026)
+# History Heatmap
 
-An interactive, self-contained animation of the estimated Christian and Muslim share of population across the world, from Pentecost to today. Open `index.html` in any browser; no server, no network, no dependencies.
+An engine for watching populations change across the world over time: a scrubbable map where hand-curated historical anchor data blends with a growth-and-diffusion simulation, rendered as a heat field evaluated analytically over whatever the viewport shows rather than as a fixed pixel grid.
+
+**The current dataset is the estimated Christian and Muslim share of population, AD 33 to 2026.** The engine is built so other population types — cultures, movements, migrations — are swappable datasets rather than rewrites.
+
+**[Open the live demo](https://jamie-db.github.io/history-heatmap/)**, or clone and open `index.html` in any browser. One file, no server, no network requests, no dependencies, no build step.
+
+[BUILDLOG.md](BUILDLOG.md) is the narrative record of how it was built.
+
+---
 
 ## Layers
 

@@ -19,3 +19,6 @@ venv/
 dist/
 build/
 *.log
+
+# Agent workspaces
+.context/
