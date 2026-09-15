@@ -14,7 +14,7 @@ An engine for watching populations change across the world over time: a scrubbab
 
 There are two kinds of dataset, because they are two different things.
 
-**Faiths** are mutually exclusive shares of one population, so they contest each other: **Christianity** (blue), **Islam** (red) and **Buddhism** (teal), individually toggleable. Buddhism is off by default.
+**Faiths** are mutually exclusive shares of one population, so they contest each other: **Christianity** (blue), **Islam** (red) and **Buddhism** (teal), individually toggleable. All three are on by default, so contested ground renders as a stripe; `?layers=cm` gives the two-faith blend.
 
 **Measures** are independent metrics of that same population. A population can be 90% Christian and 90% urban at once, so a measure cannot contest anything and does not compete for hue. It fills the map on its own ramp while the faiths collapse to their frontier lines over it. Measures are a single-select; **Urban population** is the first.
 

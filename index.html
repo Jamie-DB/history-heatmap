@@ -1008,9 +1008,9 @@ const DATASETS = [
     seedYear: 622, seeds: [[cellOf(39.8, 21.4), .02], [cellOf(39.6, 24.5), .02]] },
   // Buddhism is already ~5 centuries old at the first anchor, so unlike the other two its
   // share table does not start at zero and its seeds are its AD 33 heartlands rather than a
-  // point of origin: Magadha, Gandhara and Anuradhapura. Off by default, so the familiar
-  // two-faith map is what loads; the diffusion pass only runs if you switch it on.
-  { id: 'bud', kind: 'faith', label: 'Buddhism',     key: 'sb', ramp: RAMP_TEAL, on: false,
+  // point of origin: Magadha, Gandhara and Anuradhapura. On by default, which means the
+  // default map uses the stripe rather than the two-faith blend for contested ground.
+  { id: 'bud', kind: 'faith', label: 'Buddhism',     key: 'sb', ramp: RAMP_TEAL, on: true,
     adj: 'Buddhist', people: 'Buddhists', hue: 'teal',
     seedYear: 33,  seeds: [[cellOf(85.0, 24.7), .25], [cellOf(72.8, 33.7), .2], [cellOf(80.4, 8.3), .4]] },
   // A measure is an independent metric of the same population, not a rival for it. It is
