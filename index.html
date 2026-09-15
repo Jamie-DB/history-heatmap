@@ -116,6 +116,18 @@
   }
   .ctl-label { font-size: 11.5px; color: var(--muted); }
   .chk-set { display: contents; }
+  .region-panel { display: block; }
+  .rp-head { display: flex; align-items: baseline; gap: 10px; }
+  .rp-name { font-size: 14px; font-weight: 600; }
+  .rp-close { margin-left: auto; background: none; border: 0; padding: 0; cursor: pointer;
+    color: var(--muted); font-size: 16px; line-height: 1; }
+  .rp-meta { font-size: 11.5px; color: var(--muted); margin: 3px 0 12px; }
+  .rp-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 14px 22px; }
+  .rp-chart figcaption { display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 11px; color: var(--ink-2); margin: 0 0 3px; }
+  .rp-chart figcaption b { font-variant-numeric: tabular-nums; }
+  .rp-chart { margin: 0; }
+  .rp-chart svg { display: block; width: 100%; height: 52px; }
   .chk { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
   .chk input { accent-color: var(--accent); }
   .legend-name { font-size: 10.5px; color: var(--ink-2); margin-bottom: 2px; }
@@ -253,6 +265,8 @@
       <div class="blend-ends"><span>pure simulation (model only)</span><span>pure history (anchor data)</span></div>
     </div>
   </div>
+
+  <div class="panel region-panel heat-only" id="regionPanel" hidden></div>
 
   <div class="legend heat-only">
     <span class="legend-title">Est. share of local population</span>
@@ -1963,6 +1977,7 @@ function buildTimeline() {
 
 /* ============ state & UI ============ */
 let year = MODES.main.y0, playing = true, needsRedraw = true, lastT = 0;
+let inspectRi = null;   // region index open in the inspector, or null (see: region inspector)
 let speed = MODES.main.speed;
 // deep link: ?year=1500&play=1
 {
@@ -2004,6 +2019,11 @@ let speed = MODES.main.speed;
     for (const item of [...JOURNEYS, ...SITES]) narrativeOn[item.group] = want.includes(item.group);
   }
   if (q.get('tradition') === '0' && NARRATIVE_ENABLED) showTradition = false;
+  const rq = q.get('region');  // ?region=India — opens the inspector on load
+  if (rq) {
+    const i = REGIONS.findIndex(r => r.n.toLowerCase() === rq.trim().toLowerCase());
+    if (i >= 0) inspectRi = i;
+  }
   const vq = q.get('view'); // ?view=lon,lat,zoom
   if (vq) {
     const v = vq.split(',').map(Number);
@@ -2087,6 +2107,7 @@ function updateChrome() {
   yearBig.textContent = fmtYear(year);
   yearSub.textContent = eraLabel(year);
   if (M().hud.pop) updatePopHud(year);
+  updateRegionPanel();
   const p = yearToPos(year) * 100;
   tlFill.style.width = p + '%';
   tlHandle.style.left = p + '%';
@@ -2124,7 +2145,7 @@ function setLayer(id, on) {
   const ds = DS(id);
   ds.on = on;
   if (on && ds.kind === 'faith' && !ds.ready) enqueueSim(ds);   // simulate on first reveal
-  buildLegend(); buildPopHud(); buildTables(); updateTitles();
+  buildLegend(); buildPopHud(); buildTables(); updateTitles(); buildRegionPanel();
   needsRedraw = true;
 }
 // Checkboxes are generated from the registry, after the deep-link block has set visibility.
@@ -2226,7 +2247,7 @@ bind('pBlend', 'oBlend', 'blend', v => Math.round(v * 100) + '% history', false)
 document.getElementById('themeBtn').addEventListener('click', () => {
   const cur = isDark() ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', cur);
-  buildLUT(); buildLegend(); stylePopBars(); needsRedraw = true;
+  buildLUT(); buildLegend(); stylePopBars(); buildRegionPanel(); needsRedraw = true;
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { buildLUT(); buildLegend(); stylePopBars(); needsRedraw = true; });
 
@@ -2240,6 +2261,8 @@ function scheduleViewURL() {
       const q = new URLSearchParams(location.search);
       if (cam.z > 1.001) q.set('view', cam.lon.toFixed(2) + ',' + cam.lat.toFixed(2) + ',' + cam.z.toFixed(2));
       else q.delete('view');
+      if (inspectRi !== null) q.set('region', REGIONS[inspectRi].n);
+      else q.delete('region');
       const qs = q.toString();
       history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
     } catch (_) { /* history API unavailable (some file:// contexts); deep link just not updated */ }
@@ -2299,7 +2322,7 @@ function panBy(dxClient, dyClient) {
 }
 canvas.addEventListener('pointerdown', e => {
   canvas.setPointerCapture(e.pointerId);
-  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY });
   pinch0 = null;
   if (cam.z > 1.001) canvas.style.cursor = 'grabbing';
   tooltip.style.display = 'none';
@@ -2322,19 +2345,97 @@ canvas.addEventListener('pointermove', e => {
     pinch0 = { mx, my, d };
   }
 });
-function endPointer(e) {
+function endPointer(e, isUp) {
+  const pt = pointers.get(e.pointerId);
+  // a pointerup that barely travelled is a click, not the end of a pan: open the inspector.
+  // clicking the open region again closes it, so the same gesture toggles.
+  if (isUp && pt && pointers.size === 1 && M().layers.heat &&
+      Math.hypot(e.clientX - pt.x0, e.clientY - pt.y0) < 4) {
+    const ri = regionAt(e.clientX, e.clientY);
+    if (ri !== null) selectRegion(ri === inspectRi ? null : ri);
+  }
   pointers.delete(e.pointerId);
   if (pointers.size < 2) pinch0 = null;
   if (pointers.size === 0) canvas.style.cursor = cam.z > 1.001 ? 'grab' : 'crosshair';
 }
-canvas.addEventListener('pointerup', endPointer);
-canvas.addEventListener('pointercancel', endPointer);
+canvas.addEventListener('pointerup', e => endPointer(e, true));
+canvas.addEventListener('pointercancel', e => endPointer(e, false));
 
-// hover tooltip: nearest region, search radius shrinking with zoom
-const tooltip = document.getElementById('tooltip');
-canvas.addEventListener('mousemove', e => {
-  if (pointers.size > 0) return;   // panning or pinching
-  const [lon, lat] = clientLonLat(e.clientX, e.clientY);
+/* ============ region inspector ============ */
+// Click a region to see every visible dataset's whole curve at once. The dots are the anchor
+// estimates and the line between them is interpolation: drawing both is the point, because
+// the map alone cannot show you where the data stops and the model starts. The x axis carries
+// the same warp as the timeline, so a position here is the same position on the scrubber.
+const rpEl = document.getElementById('regionPanel');
+const RP_W = 240, RP_TOP = 5, RP_BOT = 44, RP_H = 52;
+const rpX = y => 2 + yearToPos(Math.min(SIM_Y1, Math.max(SIM_Y0, y))) * (RP_W - 4);
+const rpY = v => RP_BOT - Math.max(0, Math.min(1, v)) * (RP_BOT - RP_TOP);
+
+function regionSparkline(reg, ds) {
+  const arr = reg[ds.key] || ZERO19;
+  const pts = ANCHORS.map((a, i) => [rpX(a), rpY(arr[i] || 0)]);
+  const line = pts.map(pt => pt[0].toFixed(1) + ',' + pt[1].toFixed(1)).join(' ');
+  const col = isDark() ? ds.ramp[3] : ds.ramp[8];
+  const dots = pts.map((pt, i) =>
+    '<circle cx="' + pt[0].toFixed(1) + '" cy="' + pt[1].toFixed(1) + '" r="1.8" fill="' + col + '">' +
+    '<title>' + fmtYear(ANCHORS[i]) + ': ' + ((arr[i] || 0) * 100).toFixed(1) + '%</title></circle>').join('');
+  return '<svg viewBox="0 0 ' + RP_W + ' ' + RP_H + '" preserveAspectRatio="none">' +
+    '<line x1="2" y1="' + rpY(0.5) + '" x2="' + (RP_W - 2) + '" y2="' + rpY(0.5) +
+      '" stroke="var(--grid)" stroke-width="1" stroke-dasharray="2 3"/>' +
+    '<line x1="2" y1="' + RP_BOT + '" x2="' + (RP_W - 2) + '" y2="' + RP_BOT +
+      '" stroke="var(--border)" stroke-width="1"/>' +
+    '<polygon points="' + pts[0][0].toFixed(1) + ',' + RP_BOT + ' ' + line + ' ' +
+      pts[pts.length - 1][0].toFixed(1) + ',' + RP_BOT + '" fill="' + col + '" opacity="0.15"/>' +
+    '<polyline points="' + line + '" fill="none" stroke="' + col +
+      '" stroke-width="1.6" stroke-linejoin="round"/>' + dots +
+    '<line data-cursor="' + ds.id + '" x1="0" y1="' + (RP_TOP - 4) + '" x2="0" y2="' + (RP_BOT + 5) +
+      '" stroke="var(--ink-2)" stroke-width="1" opacity="0.5"/></svg>';
+}
+
+function buildRegionPanel() {
+  if (inspectRi === null) { rpEl.hidden = true; rpEl.innerHTML = ''; return; }
+  const reg = REGIONS[inspectRi], act = DATASETS.filter(d => d.on);
+  rpEl.hidden = false;
+  rpEl.innerHTML =
+    '<div class="rp-head"><span class="rp-name">' + reg.n + '</span>' +
+    '<button class="rp-close" id="rpClose" title="Close" aria-label="Close region inspector">&times;</button></div>' +
+    '<div class="rp-meta" id="rpMeta"></div>' +
+    (act.length
+      ? '<div class="rp-charts">' + act.map(ds =>
+          '<figure class="rp-chart"><figcaption>' + ds.label +
+          '<b data-rpval="' + ds.id + '">–</b></figcaption>' + regionSparkline(reg, ds) + '</figure>').join('') +
+        '</div>'
+      : '<div class="rp-meta">No layers visible. Turn one on to see its curve.</div>');
+  document.getElementById('rpClose').addEventListener('click', () => selectRegion(null));
+  updateRegionPanel();
+}
+
+function updateRegionPanel() {
+  if (inspectRi === null || rpEl.hidden) return;
+  const reg = REGIONS[inspectRi], x = rpX(year).toFixed(1);
+  rpEl.querySelectorAll('[data-cursor]').forEach(l => { l.setAttribute('x1', x); l.setAttribute('x2', x); });
+  for (const ds of DATASETS) {
+    const el = rpEl.querySelector('[data-rpval="' + ds.id + '"]');
+    if (!el) continue;
+    const v = interp(reg[ds.key] || ZERO19, year) * 100;
+    el.textContent = (v > 0 && v < 1 ? v.toFixed(2) : v.toFixed(0)) + '%';
+  }
+  document.getElementById('rpMeta').textContent =
+    '~' + fmtPop(interp(reg.p, year)) + ' people in ' + fmtYear(year) + ' · the ' + ANCHORS.length +
+    ' dots are the anchor estimates, the line between them is interpolation';
+}
+
+function selectRegion(ri) {
+  inspectRi = ri;
+  buildRegionPanel();
+  scheduleViewURL();
+}
+
+// Nearest region to a screen point, search radius shrinking with zoom so a world-view click
+// picks the region you meant and a city-zoom click only picks what is under the cursor.
+// Shared by the hover tooltip and the region inspector.
+function regionAt(clientX, clientY) {
+  const [lon, lat] = clientLonLat(clientX, clientY);
   const rad = Math.max(1.5, 8 / cam.z);
   let best = null, bd = rad * rad;
   REGIONS.forEach((reg, ri) => {
@@ -2344,6 +2445,14 @@ canvas.addEventListener('mousemove', e => {
       if (d < bd) { bd = d; best = ri; }
     }
   });
+  return best;
+}
+
+// hover tooltip
+const tooltip = document.getElementById('tooltip');
+canvas.addEventListener('mousemove', e => {
+  if (pointers.size > 0) return;   // panning or pinching
+  const best = regionAt(e.clientX, e.clientY);
   if (best === null) { tooltip.style.display = 'none'; return; }
   const reg = REGIONS[best];
   const pop = interp(reg.p, year);
@@ -2447,6 +2556,7 @@ buildLayerToggles();   // after the deep-link block, which sets ds.on
 buildPopHud();
 buildLegend();
 buildTables();
+buildRegionPanel();
 applyModeChrome();
 buildTimeline();
 buildNarrativePanel();
