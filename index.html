@@ -207,12 +207,8 @@
 
   <div class="controls">
     <button class="play-btn" id="playBtn" aria-label="Play or pause">&#9654;</button>
-    <span class="ctl-label">View</span>
-    <select id="modePicker">
-      <option value="main" selected>World demographics</option>
-      <option value="apostolic">Apostolic Age</option>
-      <option value="ot">Old Testament</option>
-    </select>
+    <span class="ctl-label" id="modePickerLabel">View</span>
+    <select id="modePicker"></select>
     <span class="ctl-label">Speed</span>
     <select id="speedSel">
       <option value="10">10 yrs/sec</option>
@@ -233,7 +229,6 @@
     <span class="ctl-label heat-only">Layers</span>
     <label class="chk heat-only"><input type="checkbox" id="layerC" checked> Christianity</label>
     <label class="chk heat-only"><input type="checkbox" id="layerM" checked> Islam</label>
-    <span class="ctl-label" id="hoverReadout"></span>
   </div>
 
   <div class="narr-panel" id="narrPanel"></div>
@@ -914,12 +909,6 @@ function runSimulation() {
   beginPass();
   step();
 }
-function simShareAt(snaps, i, year) {
-  if (!simReady) return 0;
-  const f = Math.min(NSNAP - 1.001, Math.max(0, (year - SIM_Y0) / SNAP_EVERY));
-  const s0 = f | 0, t = f - s0;
-  return (snaps[s0 * NCELL + i] * (1 - t) + snaps[(s0 + 1) * NCELL + i] * t) / 255;
-}
 // bilinear sample of the 2-degree sim grid at an arbitrary lon/lat (phase B: the sim stays
 // coarse; fine-zoom spatial detail comes from the analytic history field)
 function simShareLL(snaps, lon, lat, year) {
@@ -1255,6 +1244,13 @@ function drawBase() {
 }
 
 /* ============ journey & annotation engine (issue #15) ============ */
+// PARKED. The narrative overlays (apostolic journeys, Old Testament sites, church
+// foundations, the synagogue network) and the two views built on them are switched off:
+// the feature does not render correctly and is parked rather than deleted. Everything
+// below is intact and dormant. Flip this flag to revive it; nothing was removed, and the
+// four gates that read it are drawNarrative, buildNarrativePanel, drawCities' site
+// suppression, and the View picker.
+const NARRATIVE_ENABLED = false;
 // Shared primitive for narrative overlays: routes that draw leg by leg as the playhead
 // advances, and sites that ignite at their date. Everything is a pure function of the year
 // (the #10 convention), so scrubbing backwards un-draws correctly.
@@ -1520,6 +1516,7 @@ function journeyProgress(j, y) {
 }
 
 function drawNarrative(y) {
+  if (!NARRATIVE_ENABLED) return;
   const active = JOURNEYS.filter(j => j.mode === modeId && groupOn(j.group) && srcVisible(j.src));
   const sites = SITES.filter(s => s.mode === modeId && groupOn(s.group) && srcVisible(s.src) && y >= s.year);
   if (!active.length && !sites.length) return;
@@ -1629,6 +1626,7 @@ let narrativeLabelBoxes = [];
 // toggle panel, generated from whichever groups the active mode actually registers
 function buildNarrativePanel() {
   const panel = document.getElementById('narrPanel');
+  if (!NARRATIVE_ENABLED) { panel.classList.remove('on'); panel.innerHTML = ''; return; }
   const groups = [];
   for (const item of [...JOURNEYS, ...SITES]) {
     if (item.mode !== modeId) continue;
@@ -1675,7 +1673,9 @@ function drawCities(year) {
   const labelBoxes = narrativeLabelBoxes; // placed label rects, so labels don't collide
   // Where a narrative site already names a place, suppress the generic city marker. Compared
   // by position, not name, so spelling variants (Thessalonica / Thessaloniki) dedupe too.
-  const claimed = SITES.filter(s => s.mode === modeId && groupOn(s.group) && srcVisible(s.src) && year >= s.year);
+  const claimed = NARRATIVE_ENABLED
+    ? SITES.filter(s => s.mode === modeId && groupOn(s.group) && srcVisible(s.src) && year >= s.year)
+    : [];
   ctx.textBaseline = 'middle';
   ctx.font = `${11 * DPR}px system-ui, sans-serif`;
   for (const [name, lon, lat, cy, rank] of CITIES) {
@@ -1804,6 +1804,18 @@ const MODES = {
 };
 let modeId = 'main';
 const M = () => MODES[modeId];
+const modeEnabled = id => NARRATIVE_ENABLED || id === 'main';
+// The View picker lists only enabled modes. With the narrative views parked that leaves
+// one, so the control hides itself rather than offering a menu of a single option.
+function buildModePicker() {
+  const sel = document.getElementById('modePicker');
+  const ids = Object.keys(MODES).filter(modeEnabled);
+  sel.innerHTML = ids.map(id => `<option value="${id}">${MODES[id].label}</option>`).join('');
+  const solo = ids.length < 2 ? 'none' : '';
+  sel.style.display = solo;
+  document.getElementById('modePickerLabel').style.display = solo;
+}
+buildModePicker();
 const modeSaved = {};   // per-mode {year, playing, speed, cam} across switches
 
 const yearToPos = y => {
@@ -1851,7 +1863,7 @@ let speed = MODES.main.speed;
 {
   const q = new URLSearchParams(location.search);
   const mq = q.get('mode');   // ?mode=apostolic (year, view etc are read in that domain)
-  if (mq && MODES[mq]) {
+  if (mq && MODES[mq] && modeEnabled(mq)) {
     modeId = mq;
     document.getElementById('modePicker').value = mq;
     year = M().y0; speed = M().speed; playing = false;
@@ -1876,11 +1888,11 @@ let speed = MODES.main.speed;
     document.getElementById('frontierSel').value = 'majority';
   }
   const bq = q.get('bib');  // ?bib=paul,deaths restricts narrative groups; ?bib=none clears
-  if (bq !== null) {
+  if (bq !== null && NARRATIVE_ENABLED) {
     const want = bq.split(',').filter(Boolean);
     for (const item of [...JOURNEYS, ...SITES]) narrativeOn[item.group] = want.includes(item.group);
   }
-  if (q.get('tradition') === '0') showTradition = false;
+  if (q.get('tradition') === '0' && NARRATIVE_ENABLED) showTradition = false;
   const vq = q.get('view'); // ?view=lon,lat,zoom
   if (vq) {
     const v = vq.split(',').map(Number);
@@ -1997,7 +2009,7 @@ function applyModeChrome() {
   speed = m.speed;
 }
 function setMode(id) {
-  if (!MODES[id] || id === modeId) return;
+  if (!MODES[id] || id === modeId || !modeEnabled(id)) return;
   modeSaved[modeId] = { year, playing, speed, cam: { ...cam } };
   modeId = id;
   document.getElementById('modePicker').value = id;
