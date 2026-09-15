@@ -149,6 +149,12 @@
     background: var(--accent); border: 2.5px solid var(--surface); box-shadow: 0 0 0 1px var(--border);
     transform: translateX(-8px);
   }
+  .tl-ghost {
+    position: absolute; top: 9px; width: 16px; height: 16px; border-radius: 50%;
+    background: transparent; border: 2.5px dashed var(--muted);
+    transform: translateX(-8px); display: none;
+  }
+  .tl-ghost.on { display: block; }
   .tl-tick { position: absolute; top: 22px; width: 1px; height: 7px; background: var(--baseline); }
   .tl-tick-label {
     position: absolute; font-size: 9.5px; color: var(--muted); transform: translateX(-50%);
@@ -230,6 +236,7 @@
     <span class="chk-set heat-only" id="layerToggles"></span>
     <span class="ctl-label heat-only">Measure</span>
     <select id="measureSel" class="heat-only"></select>
+    <button class="chk heat-only" id="cmpBtn" style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 9px;cursor:pointer">Compare from here</button>
   </div>
 
   <div class="narr-panel" id="narrPanel"></div>
@@ -237,6 +244,7 @@
   <div class="timeline" id="timeline">
     <div class="tl-track"></div>
     <div class="tl-fill" id="tlFill"></div>
+    <div class="tl-ghost" id="tlGhost" title="Comparing from here"></div>
     <div class="tl-handle" id="tlHandle"></div>
   </div>
 
@@ -964,6 +972,13 @@ const RAMP_RED = ['#fcdcd6','#f8c8c0','#f4b4aa','#efa095','#e98c80','#e2776b','#
 // against red, the most balanced survivor. See README.
 // Urbanisation fills the map on its own ramp while the faiths collapse to frontier lines
 // over it, so it never competes with a faith hue at the same lightness in the same role.
+// Diverging, loss -> no change -> gain, for the compare view. It cannot be theme-reversed
+// the way a sequential ramp can, because reversing would swap gain and loss, so there is one
+// array per theme. Hue alone carries the sign: loss violet, gain green. Lightness cannot,
+// because the alpha ramp is V-shaped and makes the midpoint invisible on purpose.
+const RAMP_DIV_LIGHT = ['#685fc8','#6c61b8','#6e64a9','#6f669a','#6f688b','#6f6b7c','#6d6d6d','#647162','#5a7456','#4e774b','#417a3f','#2f7c32','#137e23'];
+const RAMP_DIV_DARK  = ['#b3a3ff','#b4a6f9','#b4a8ea','#b4aadc','#b4accd','#b2aebf','#b0b0b0','#a8b4a6','#9eb79b','#94ba90','#8abd84','#7ec079','#71c36d'];
+let LUT_DIV = new Uint8ClampedArray(256 * 4);
 const RAMP_URBAN = ['#fbd9c5','#f4c8ab','#efb690','#e6a477','#de925c','#d48143','#cb6e22','#ba5f0f','#a6540b','#934802','#803d01','#6e3200','#5b2900'];
 const RAMP_TEAL = ['#bde8ed','#9ddbe3','#77cfda','#4ac2d0','#00b6c7','#00a9bd','#009cb5','#008ea6','#007e94','#006f83','#006072','#005162','#004351'];
 const DATASETS = [
@@ -1240,7 +1255,20 @@ function fillLUT(lut, ramp) {
     lut[v*4+3] = Math.round(255 * Math.min(0.95, Math.pow(t, 0.85) * 1.05));
   }
 }
-function buildLUT() { for (const ds of DATASETS) fillLUT(ds.lut, ds.ramp); }
+function buildLUT() {
+  for (const ds of DATASETS) fillLUT(ds.lut, ds.ramp);
+  // The diverging LUT needs a V-shaped alpha: fillLUT's monotone alpha would put zero
+  // opacity at maximum loss and erase that whole arm of the scale.
+  const stops = (isDark() ? RAMP_DIV_DARK : RAMP_DIV_LIGHT).map(hex2rgb);
+  for (let v = 0; v < 256; v++) {
+    const t = v / 255, x = t * 12, i0 = Math.min(11, x | 0), ft = x - i0;
+    const a = stops[i0], b = stops[i0 + 1];
+    LUT_DIV[v*4]   = a[0] + ft * (b[0] - a[0]);
+    LUT_DIV[v*4+1] = a[1] + ft * (b[1] - a[1]);
+    LUT_DIV[v*4+2] = a[2] + ft * (b[2] - a[2]);
+    LUT_DIV[v*4+3] = Math.round(255 * Math.min(0.95, Math.pow(Math.abs(2 * t - 1), 0.7) * 1.05));
+  }
+}
 
 const K = 150, LOGK = Math.log(1 + K);
 const logT = s => s <= 0 ? 0 : Math.log(1 + K * s) / LOGK;
@@ -1378,6 +1406,7 @@ function draw(year) {
   const latSpan = (H / cam.z) / BH * (LAT_TOP - LAT_BOT) * 1.02;
   const lon0 = cam.lon - lonSpan / 2, latTopV = cam.lat + latSpan / 2;
   const cw = lonSpan / FW, ch = latSpan / FH;
+  const cmpDs = cmpYear !== null ? ensureCompareField(lon0, latTopV, cw, ch) : null;
   buildViewField(year, lon0, latTopV, cw, ch);
 
   const urb = params.densExp, blend = params.blend;
@@ -1395,6 +1424,7 @@ function draw(year) {
   // their frontier: the line where the top two are closest to parity. MT_LINE is the same
   // gate the contested band uses, narrowed, so the Frontier control still means something
   // here (Blend draws a wider border, Majority a hairline).
+  const cmpNum = cmpDs ? cmpDs.viewNum : null;
   const meas = DATASETS.find(d => d.kind === 'measure' && d.on) || null;
   const measNum = meas ? meas.viewNum : null, measLut = meas ? meas.lut : null;
   const MT_LINE = majority ? 0.04 : 0.09;
@@ -1402,7 +1432,7 @@ function draw(year) {
   for (let idx = 0; idx < FW * FH; idx++) {
     const o = idx * 4;
     const d = viewDens[idx];
-    if (d <= 1e-6 || (NA === 0 && !DATASETS.some(x => x.kind === 'measure' && x.on))) {
+    if (d <= 1e-6 || (NA === 0 && !meas && !cmpDs)) {
       data[o] = data[o+1] = data[o+2] = data[o+3] = 0;
       continue;
     }
@@ -1411,6 +1441,16 @@ function draw(year) {
     const densFac = params.mode === 'percap'
       ? Math.min(1, d / (0.02 * densMax))
       : Math.pow(Math.min(1, d / (0.12 * densMax)), urb);
+    if (cmpDs) {
+      // Change, not state: the pinned year's share subtracted from this one, on a diverging
+      // ramp whose midpoint is transparent. Density-weighted like everything else, so an
+      // empty desert that swung 40 points still reads faint.
+      const dv = (cmpNum[idx] / d - cmpShare[idx]) * densFac;
+      const q = Math.min(255, Math.max(0, Math.round((dv + 1) * 127.5))) * 4;
+      data[o] = LUT_DIV[q]; data[o+1] = LUT_DIV[q+1];
+      data[o+2] = LUT_DIV[q+2]; data[o+3] = LUT_DIV[q+3];
+      continue;
+    }
     const ix = idx % FW, iy = (idx / FW) | 0;
     const lonC = lon0 + (ix + 0.5) * cw;
     const latC = latTopV - (iy + 0.5) * ch;
@@ -2145,6 +2185,9 @@ function buildTimeline() {
 /* ============ state & UI ============ */
 let year = MODES.main.y0, playing = true, needsRedraw = true, lastT = 0;
 let inspectRi = null;   // region index open in the inspector, or null (see: region inspector)
+let cmpYear = null;     // compare mode: pinned year A, or null (see: compare two years)
+let cmpCacheKey = '';   // what the cached field A was built for; '' means not built
+let cmpShare = null;    // dataset share at year A, per view-field pixel
 let speed = MODES.main.speed;
 // deep link: ?year=1500&play=1
 {
@@ -2175,6 +2218,12 @@ let speed = MODES.main.speed;
       : [...lq].every(ch => LEGACY[ch]) ? [...lq].map(ch => LEGACY[ch])
       : [lq];
     for (const ds of faiths()) ds.on = want.includes(ds.id);
+  }
+  const fq = q.get('from');       // ?from=600&to=800 renders the change between two years
+  if (fq !== null && Number.isFinite(+fq)) {
+    cmpYear = Math.min(SIM_Y1, Math.max(SIM_Y0, +fq));
+    const tq = q.get('to');
+    if (tq !== null && Number.isFinite(+tq)) { year = Math.min(SIM_Y1, Math.max(SIM_Y0, +tq)); playing = false; }
   }
   const mq2 = q.get('measure');   // ?measure=urb, or ?measure=none
   if (mq2 !== null)
@@ -2281,6 +2330,9 @@ function updateChrome() {
   const p = yearToPos(year) * 100;
   tlFill.style.width = p + '%';
   tlHandle.style.left = p + '%';
+  const ghost = document.getElementById('tlGhost');
+  ghost.classList.toggle('on', cmpYear !== null);
+  if (cmpYear !== null) ghost.style.left = (yearToPos(cmpYear) * 100) + '%';
   playBtn.innerHTML = playing ? '&#10073;&#10073;' : '&#9654;';
 }
 
@@ -2292,6 +2344,11 @@ document.getElementById('speedSel').addEventListener('change', e => speed = +e.t
 // The page title and standfirst name whichever datasets are visible, so they cannot go stale
 // when a layer is toggled or a population type is added.
 function datasetTitle() {
+  if (cmpYear !== null) {
+    const ds = cmpDataset();
+    return 'Change in ' + (ds ? ds.label : 'Population') + ' Share, ' +
+           fmtYear(cmpYear) + ' to ' + fmtYear(year);
+  }
   // A measure fills the map, so it names the view; folding it into the faith list would
   // read as "Christian, Muslim and urban share", which is not a thing.
   const me = DATASETS.find(d => d.kind === 'measure' && d.on);
@@ -2302,6 +2359,12 @@ function datasetTitle() {
     : 'Population Share, AD 33 to 2026';
 }
 function datasetSub() {
+  if (cmpYear !== null) {
+    const ds = cmpDataset();
+    return ds
+      ? 'Where ' + ds.label + ' gained (green) and lost (violet) between those two years, not its level at either. Scrub to move the second year; press the button again to leave.'
+      : 'Nothing visible to compare. Turn on a layer.';
+  }
   const fa = activeFaiths(), me = DATASETS.find(d => d.kind === 'measure' && d.on);
   if (!fa.length && !me) return 'No layers visible. Turn one on to see the map.';
   const tail = '. Historical anchor data blended with a live diffusion model; drag the sliders to play.';
@@ -2403,6 +2466,7 @@ function setMode(id) {
   needsRedraw = true;
 }
 document.getElementById('modePicker').addEventListener('change', e => setMode(e.target.value));
+document.getElementById('cmpBtn').addEventListener('click', () => setCompare(cmpYear === null ? year : null));
 
 let scrubbing = false;
 function scrubTo(clientX) {
@@ -2457,6 +2521,8 @@ function scheduleViewURL() {
       else q.delete('region');
       const mOn = DATASETS.find(x => x.kind === 'measure' && x.on);
       if (mOn) q.set('measure', mOn.id); else q.delete('measure');
+      if (cmpYear !== null) { q.set('from', Math.round(cmpYear)); q.set('to', Math.round(year)); }
+      else { q.delete('from'); q.delete('to'); }
       const qs = q.toString();
       history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
     } catch (_) { /* history API unavailable (some file:// contexts); deep link just not updated */ }
@@ -2554,6 +2620,42 @@ function endPointer(e, isUp) {
 }
 canvas.addEventListener('pointerup', e => endPointer(e, true));
 canvas.addEventListener('pointercancel', e => endPointer(e, false));
+
+/* ============ compare two years (#9) ============ */
+// Pin a year, scrub to another, and the map renders the change rather than the state. The
+// pinned year's field is cached, because rebuilding two analytic fields every frame would
+// double the per-frame cost for a value that only moves when the camera or the pin does.
+// The compared dataset is the measure if one fills the map, otherwise the first visible
+// faith. Stated in the legend rather than left to be guessed.
+function cmpDataset() {
+  return DATASETS.find(d => d.kind === 'measure' && d.on) || activeFaiths()[0] || null;
+}
+// Rebuilds only when something it depends on actually changed. Self-validating rather than
+// invalidated by callback, because a cache that silently samples the wrong place renders a
+// plausible-looking map that is entirely wrong.
+function ensureCompareField(lon0, latTopV, cw, ch) {
+  const ds = cmpDataset();
+  if (!ds) { cmpCacheKey = ''; return null; }
+  const key = ds.id + '|' + cmpYear.toFixed(2) + '|' + lon0.toFixed(4) + '|' + latTopV.toFixed(4) +
+              '|' + cw.toFixed(6) + '|' + FW + 'x' + FH;
+  if (key === cmpCacheKey) return ds;
+  if (!cmpShare || cmpShare.length !== FW * FH) cmpShare = new Float32Array(FW * FH);
+  buildViewField(cmpYear, lon0, latTopV, cw, ch);
+  const num = ds.viewNum;
+  for (let i = 0; i < FW * FH; i++) {
+    const d = viewDens[i];
+    cmpShare[i] = d > 1e-6 ? num[i] / d : 0;
+  }
+  cmpCacheKey = key;
+  return ds;
+}
+function setCompare(y) {
+  cmpYear = y;
+  document.getElementById('cmpBtn').textContent = y === null ? 'Compare from here' : 'Comparing from ' + fmtYear(y);
+  buildLegend(); updateTitles();
+  needsRedraw = true;
+  scheduleViewURL();
+}
 
 /* ============ region inspector ============ */
 // Click a region to see every visible dataset's whole curve at once. The dots are the anchor
@@ -2665,12 +2767,27 @@ canvas.addEventListener('mouseleave', () => tooltip.style.display = 'none');
 
 // legend
 function buildLegend() {
-  const grad = ramp => {
-    const stops = isDark() ? ramp.slice().reverse() : ramp;
+  const grad = (ramp, diverging) => {
+    // a diverging ramp is never reversed for dark theme: that would swap gain and loss
+    const stops = (isDark() && !diverging) ? ramp.slice().reverse() : ramp;
     return `linear-gradient(to right, ${stops.map((c, i) => c + ' ' + (i / (stops.length - 1) * 100) + '%').join(',')})`;
   };
-  const act = DATASETS.filter(d => d.on);
   const blocks = document.getElementById('legendBlocks');
+  const mixEl = document.getElementById('legMix');
+  if (cmpYear !== null) {
+    const ds = cmpDataset();
+    const stops = isDark() ? RAMP_DIV_DARK : RAMP_DIV_LIGHT;
+    blocks.innerHTML = '<div><div class="legend-name">' +
+      (ds ? 'Change in ' + ds.label : 'Change') + ', ' + fmtYear(cmpYear) + ' to ' + fmtYear(year) +
+      '</div><div class="legend-bar" style="background:' + grad(stops, true) +
+      '"></div><div class="legend-ticks"><span style="left:0%">lost</span>' +
+      '<span style="left:50%">no change</span><span style="left:100%">gained</span></div></div>';
+    mixEl.style.display = 'none';
+    document.getElementById('legendNote').textContent =
+      'diverging; the midpoint is transparent, so only real movement is drawn';
+    return;
+  }
+  const act = DATASETS.filter(d => d.on);
   blocks.innerHTML = act.map(ds =>
     '<div><div class="legend-name">' + ds.label + (ds.note ? ' <span style="color:var(--muted)">' + ds.note + '</span>' : '') + '</div>' +
     '<div class="legend-bar" style="background:' + grad(ds.ramp) + '"></div>' +
