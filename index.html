@@ -868,6 +868,26 @@ for (const ds of DATASETS) {
 const listOf = xs => xs.length < 2 ? (xs[0] || '')
   : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1];
 
+// Faiths are mutually exclusive shares of one population, so they cannot sum above 1 in any
+// region at any anchor. Nothing enforced that while there were only two whose union was
+// usually well under 1; a third makes it matter, because the renderer's dominance test would
+// start asserting a leader in a region whose real majority is something we do not model.
+// This reports to the author's console rather than the user's screen: it is a check on the
+// data, not a caveat about it.
+function validateShares() {
+  const bad = [];
+  for (const reg of REGIONS)
+    for (let i = 0; i < ANCHORS.length; i++) {
+      let sum = 0;
+      for (const ds of faiths()) sum += (reg[ds.key] || ZERO19)[i] || 0;
+      if (sum > 1.001) bad.push(reg.n + ' @ ' + ANCHORS[i] + ': ' + sum.toFixed(3));
+    }
+  if (bad.length)
+    console.warn('[data] ' + bad.length + ' region-anchor cells have faith shares summing over 1:\n  '
+                 + bad.join('\n  '));
+  return bad;
+}
+
 const routeCells = ROUTES.map(r => [cellOf(r[0], r[1]), cellOf(r[2], r[3]), r[4], r[5]]);
 
 // Diffusion passes run one at a time, never concurrently. They are not safe to interleave:
@@ -2421,6 +2441,7 @@ function frame(t) {
   requestAnimationFrame(frame);
 }
 
+validateShares();
 buildLUT();
 buildLayerToggles();   // after the deep-link block, which sets ds.on
 buildPopHud();
