@@ -236,6 +236,8 @@
     <span class="chk-set heat-only" id="layerToggles"></span>
     <span class="ctl-label heat-only">Measure</span>
     <select id="measureSel" class="heat-only"></select>
+    <label class="chk heat-only" title="Wash figures toward neutral where they are estimates or conjecture"><input type="checkbox" id="confChk" checked> confidence</label>
+    <label class="chk heat-only" title="Grey regions whose actual majority this model does not carry"><input type="checkbox" id="otherChk"> unmodelled</label>
     <button class="chk heat-only" id="cmpBtn" style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 9px;cursor:pointer">Compare from here</button>
   </div>
 
@@ -282,6 +284,7 @@
     <span class="legend-title">Est. share of local population</span>
     <span class="chk-set" id="legendBlocks"></span>
     <span class="legend-title" id="legMix"></span>
+    <span class="legend-title" id="legConf"></span>
     <span class="legend-title" style="color:var(--muted)" id="legendNote">log-scaled; brightness also weights population density</span>
   </div>
 
@@ -884,18 +887,25 @@ let densMax = 1;
 // the draw path and the simulation to share them. This breaks the moment anyone chunks
 // buildFields or buildViewField across animation frames.
 const _fieldSh = [];
-function buildFields(year) {
+// `shares` false builds only the density field, which is all the draw path wants from this:
+// it takes densMax and nothing else. The share numerators are read by the simulation alone,
+// and building them every frame cost a full pass per dataset for nobody.
+function buildFields(year, shares = true) {
   const N = DATASETS.length;
   densF.fill(0);
-  for (const ds of DATASETS) ds.shareNum.fill(0);
+  if (shares) for (const ds of DATASETS) ds.shareNum.fill(0);
   buildRegWeights(year);
   for (const sp of SPLATS) {
     const pw = ptWeight(sp, year);
     if (pw <= 0 || regWeightSum[sp.ri] <= 0) continue;
     const reg = REGIONS[sp.ri];
     const pop = interp(reg.p, year) * pw / regWeightSum[sp.ri];
-    for (let n = 0; n < N; n++) _fieldSh[n] = interp(reg[DATASETS[n].key], year);
     const { cells, w } = sp;
+    if (!shares) {
+      for (let k = 0; k < cells.length; k++) densF[cells[k]] += pop * w[k];
+      continue;
+    }
+    for (let n = 0; n < N; n++) _fieldSh[n] = interp(reg[DATASETS[n].key], year);
     for (let k = 0; k < cells.length; k++) {
       const add = pop * w[k], ci = cells[k];
       densF[ci] += add;
@@ -905,7 +915,7 @@ function buildFields(year) {
   densMax = 1e-9;
   for (let i = 0; i < NCELL; i++) {
     const d = densF[i];
-    for (const ds of DATASETS) ds.hist[i] = d > 1e-6 ? ds.shareNum[i] / d : 0;
+    if (shares) for (const ds of DATASETS) ds.hist[i] = d > 1e-6 ? ds.shareNum[i] / d : 0;
     if (d > densMax) densMax = d;
   }
 }
@@ -979,6 +989,11 @@ const RAMP_RED = ['#fcdcd6','#f8c8c0','#f4b4aa','#efa095','#e98c80','#e2776b','#
 const RAMP_DIV_LIGHT = ['#685fc8','#6c61b8','#6e64a9','#6f669a','#6f688b','#6f6b7c','#6d6d6d','#647162','#5a7456','#4e774b','#417a3f','#2f7c32','#137e23'];
 const RAMP_DIV_DARK  = ['#b3a3ff','#b4a6f9','#b4a8ea','#b4aadc','#b4accd','#b2aebf','#b0b0b0','#a8b4a6','#9eb79b','#94ba90','#8abd84','#7ec079','#71c36d'];
 let LUT_DIV = new Uint8ClampedArray(256 * 4);
+// "Nothing is committed here": a warm grey hued toward --land rather than a true grey, so it
+// reads as absence rather than as a fourth category. Used for the confidence wash and for
+// regions whose actual majority the model does not carry.
+const RAMP_NONE = ['#e6dfd9','#d6cfca','#c8c0bb','#b8b1ac','#a9a29e','#9b948f','#8c8580','#7d7772','#6f6965','#625c57','#554f4a','#48423e','#3b3632'];
+let LUT_NONE = new Uint8ClampedArray(256 * 4);
 const RAMP_URBAN = ['#fbd9c5','#f4c8ab','#efb690','#e6a477','#de925c','#d48143','#cb6e22','#ba5f0f','#a6540b','#934802','#803d01','#6e3200','#5b2900'];
 const RAMP_TEAL = ['#bde8ed','#9ddbe3','#77cfda','#4ac2d0','#00b6c7','#00a9bd','#009cb5','#008ea6','#007e94','#006f83','#006072','#005162','#004351'];
 const DATASETS = [
@@ -1195,16 +1210,24 @@ function ensureViewBuffers() {
   fieldCanvas.width = FW; fieldCanvas.height = FH;
   fimg = fctx.createImageData(FW, FH);
   viewDens = new Float32Array(FW * FH);
-  for (const ds of DATASETS) ds.viewNum = new Float32Array(FW * FH);
+  for (const ds of DATASETS) {
+    ds.viewNum = new Float32Array(FW * FH);
+    ds.confNum = new Float32Array(FW * FH);   // population-weighted confidence, same grid
+  }
 }
 // Evaluate the analytic gaussian field on the viewport grid. Mass-conserving anti-aliasing:
 // a point narrower than the current cell size renders with sigma clamped up to ~0.7 cells
 // and amplitude scaled down by the area ratio, so city-scale points dilute honestly at
 // world view and sharpen to their true footprint as the grid refines.
 function buildViewField(year, lon0, latTopV, cw, ch) {
-  const N = DATASETS.length, nums = DATASETS.map(d => d.viewNum), sh = [];
+  // only datasets that are actually drawn. A disabled dataset's field is never read, and
+  // accumulating it cost the hottest loop in the app a full pass per pixel for nothing.
+  const live = DATASETS.filter(d => d.on);
+  const N = live.length, nums = live.map(d => d.viewNum), sh = [];
+  const cfs = live.map(d => d.confNum), cf = [], wantConf = showConf;
   viewDens.fill(0);
   for (const a of nums) a.fill(0);
+  for (const a of cfs) a.fill(0);
   buildRegWeights(year);
   const cs = Math.max(cw, ch);
   for (const pt of APTS) {
@@ -1213,7 +1236,10 @@ function buildViewField(year, lon0, latTopV, cw, ch) {
     const reg = REGIONS[pt.ri];
     const pop = interp(reg.p, year) * pw / regWeightSum[pt.ri];
     if (pop <= 0) continue;
-    for (let n = 0; n < N; n++) sh[n] = interp(reg[DATASETS[n].key], year);
+    for (let n = 0; n < N; n++) {
+      sh[n] = interp(reg[live[n].key], year);
+      cf[n] = showConf ? CONF_WEIGHT[confOf(live[n].id, reg.n, year)] : 1;
+    }
     const sig = Math.max(pt.sigDeg, 0.7 * cs);
     const amp = pop * 4 / (2 * Math.PI * sig * sig * pt.landFrac); // mass per 2-deg-cell-equivalent
     const rad = sig * 2.9;
@@ -1233,6 +1259,9 @@ function buildViewField(year, lon0, latTopV, cw, ch) {
         const d = amp * g, ci = row + i;
         viewDens[ci] += d;
         for (let n = 0; n < N; n++) nums[n][ci] += d * sh[n];
+        // the confidence field is another full scattered write per dataset per pixel, so it
+        // is only paid for when the wash is actually being drawn
+        if (wantConf) for (let n = 0; n < N; n++) cfs[n][ci] += d * cf[n];
       }
     }
   }
@@ -1257,6 +1286,7 @@ function fillLUT(lut, ramp) {
 }
 function buildLUT() {
   for (const ds of DATASETS) fillLUT(ds.lut, ds.ramp);
+  fillLUT(LUT_NONE, RAMP_NONE);
   // The diverging LUT needs a V-shaped alpha: fillLUT's monotone alpha would put zero
   // opacity at maximum loss and erase that whole arm of the scale.
   const stops = (isDark() ? RAMP_DIV_DARK : RAMP_DIV_LIGHT).map(hex2rgb);
@@ -1271,7 +1301,15 @@ function buildLUT() {
 }
 
 const K = 150, LOGK = Math.log(1 + K);
-const logT = s => s <= 0 ? 0 : Math.log(1 + K * s) / LOGK;
+const logTexact = s => s <= 0 ? 0 : Math.log(1 + K * s) / LOGK;
+// The pixel loop calls this twice per dataset per pixel, so at four datasets it was a quarter
+// of a million Math.log calls a frame. Indexed by sqrt(share) rather than by share: logT is
+// steepest at the bottom, which is exactly where the early minority communities live, and a
+// linear index would quantise them away. Bottom bin is s = 1e-6; worst-case error is well
+// inside the 1/255 the result is rounded to anyway.
+const LOGT_N = 1024, LOGT_TBL = new Float32Array(LOGT_N + 1);
+for (let k = 0; k <= LOGT_N; k++) LOGT_TBL[k] = logTexact((k / LOGT_N) ** 2);
+const logT = s => s <= 0 ? 0 : LOGT_TBL[(Math.sqrt(s) * LOGT_N) | 0];
 
 // W/H: canvas device px. BH: base map height (world at zoom 1), tied to W so degrees
 // stay square; H may exceed BH in fullscreen (letterboxed world, not stretched).
@@ -1399,7 +1437,7 @@ const MIXT = 0.02;  // two faiths both above this share = genuine co-presence, r
 const shScr = new Float64Array(16), inScr = new Float64Array(16);
 function draw(year) {
   if (!M().layers.heat) { drawBase(); return; }   // narrative modes render map only (#14)
-  buildFields(year);        // 2-degree pass still supplies densMax (global brightness scale)
+  buildFields(year, false); // 2-degree pass still supplies densMax (global brightness scale)
   ensureViewBuffers();
   // viewport bounds in degrees, small margin against seams at the edges
   const lonSpan = 360 / cam.z * 1.02;
@@ -1412,6 +1450,7 @@ function draw(year) {
   const urb = params.densExp, blend = params.blend;
   const act = activeFaiths(), NA = act.length;
   const nums = act.map(d => d.viewNum), luts = act.map(d => d.lut);
+  const actConf = act.map(d => d.confNum);
   const R = params.frontier === 'majority' ? R_MAJ : R_BLEND;
   const majority = params.frontier === 'majority';
   // Two faiths blend into a shared hue; three or more cannot. The blue-to-red blend sweeps
@@ -1425,10 +1464,21 @@ function draw(year) {
   // gate the contested band uses, narrowed, so the Frontier control still means something
   // here (Blend draws a wider border, Majority a hairline).
   const cmpNum = cmpDs ? cmpDs.viewNum : null;
+  const data = fimg.data;
   const meas = DATASETS.find(d => d.kind === 'measure' && d.on) || null;
   const measNum = meas ? meas.viewNum : null, measLut = meas ? meas.lut : null;
   const MT_LINE = majority ? 0.04 : 0.09;
-  const data = fimg.data;
+  // Confidence washes the fill toward the neutral: a conjecture reads as barely committed,
+  // an attested figure at full strength. Applied after the hue is chosen, so it never changes
+  // which dataset a cell belongs to, only how loudly the map claims it.
+  const confs = DATASETS.map(d => d.confNum);
+  const washOf = c => showConf ? (1 - c) * 0.75 : 0;
+  const wash = (o, q, w) => {
+    if (w <= 0.003) return;
+    data[o]   += w * (LUT_NONE[q]   - data[o]);
+    data[o+1] += w * (LUT_NONE[q+1] - data[o+1]);
+    data[o+2] += w * (LUT_NONE[q+2] - data[o+2]);
+  };
   for (let idx = 0; idx < FW * FH; idx++) {
     const o = idx * 4;
     const d = viewDens[idx];
@@ -1458,7 +1508,7 @@ function draw(year) {
     // genuinely disagree in places, and that is deliberate: who leads is a demographic fact,
     // how bright it reads is a legibility choice. One scan finds the top two and the
     // brightest, so the cost is linear in the number of visible faiths.
-    let ai = -1, bi = -1, sa = -1, sb = -1, imax = 0;
+    let ai = -1, bi = -1, sa = -1, sb = -1, imax = 0, ssum = 0;
     for (let n = 0; n < NA; n++) {
       const ds = act[n];
       const h = nums[n][idx] / d;
@@ -1467,7 +1517,7 @@ function draw(year) {
       const bl = ds.ready ? blend : 1;
       const sv = bl * h + (1 - bl) * sim;
       const iv = (bl * logT(h) + (1 - bl) * logT(sim)) * densFac;
-      shScr[n] = sv; inScr[n] = iv;
+      shScr[n] = sv; inScr[n] = iv; ssum += sv;
       if (sv > sa) { sb = sa; bi = ai; sa = sv; ai = n; }
       else if (sv > sb) { sb = sv; bi = n; }
       if (iv > imax) imax = iv;
@@ -1476,6 +1526,7 @@ function draw(year) {
       const mq = Math.min(255, Math.round(logT(measNum[idx] / d) * densFac * 255)) * 4;
       data[o] = measLut[mq]; data[o+1] = measLut[mq+1];
       data[o+2] = measLut[mq+2]; data[o+3] = measLut[mq+3];
+      wash(o, mq, washOf(meas.confNum[idx] / d));
       // frontier line over the fill. The margin is smooth, so the line slides sub-pixel as
       // the year advances instead of snapping cell to cell the way a hard argmax would.
       if (bi >= 0 && sb >= MIXT) {
@@ -1494,14 +1545,24 @@ function draw(year) {
       }
       continue;
     }
+    const oth = 1 - ssum;
+    if (showOther && oth > sa) {
+      // the leading population here is one the model does not carry
+      const q = Math.min(255, Math.round(logT(oth) * densFac * 255)) * 4;
+      data[o] = LUT_NONE[q]; data[o+1] = LUT_NONE[q+1];
+      data[o+2] = LUT_NONE[q+2]; data[o+3] = LUT_NONE[q+3];
+      continue;
+    }
     if (bi >= 0 && sb >= MIXT && sa < R * sb) {
       const q = Math.min(255, Math.round(imax * 255)) * 4;
       if (hatch) {
         // The leader keeps the cell and the runner-up is striped diagonally across it, one
         // field cell in four. The stripe is in field space, so it holds a constant width on
         // screen as you zoom rather than growing with the map.
-        const L = luts[((ix + iy) & 3) === 0 ? bi : ai];
+        const st = ((ix + iy) & 3) === 0;
+        const L = luts[st ? bi : ai];
         data[o] = L[q]; data[o+1] = L[q+1]; data[o+2] = L[q+2]; data[o+3] = L[q+3];
+        wash(o, q, washOf(actConf[st ? bi : ai][idx] / d));
       } else {
         // Two faiths. Blend mode: ramps blended by relative share, gently minority-weighted
         // (exponent < 1) so a 10-15% minority reads as a tint. Majority mode: a flat 50/50, so
@@ -1516,11 +1577,13 @@ function draw(year) {
         data[o+1] = A[q+1] + t * (B[q+1] - A[q+1]);
         data[o+2] = A[q+2] + t * (B[q+2] - A[q+2]);
         data[o+3] = A[q+3];
+        wash(o, q, washOf(actConf[ai][idx] / d));
       }
     } else {
       // winner-take-all below the mix threshold keeps unmixed frontiers crisp
       const L = luts[ai], q = Math.min(255, Math.round(inScr[ai] * 255)) * 4;
       data[o] = L[q]; data[o+1] = L[q+1]; data[o+2] = L[q+2]; data[o+3] = L[q+3];
+      wash(o, q, washOf(actConf[ai][idx] / d));
     }
   }
   fctx.putImageData(fimg, 0, 0);
@@ -2184,7 +2247,16 @@ function buildTimeline() {
 
 /* ============ state & UI ============ */
 let year = MODES.main.y0, playing = true, needsRedraw = true, lastT = 0;
+// Everything the deep-link block below reads must be declared HERE, not down in the feature
+// section that owns it. That block runs at parse time, well before those sections, and a
+// `let` declared later is in its temporal dead zone: the page throws on load and the render
+// loop never starts.
 let inspectRi = null;   // region index open in the inspector, or null (see: region inspector)
+let showConf = true;    // confidence wash; on by default because it is the honest reading
+// Faiths are mutually exclusive shares of one population, so whatever is left over is a real
+// majority the model does not carry: Hindus in India, folk religion in China. Off by default,
+// because turning it on blanks large parts of the map and that should be a deliberate act.
+let showOther = false;
 let cmpYear = null;     // compare mode: pinned year A, or null (see: compare two years)
 let cmpCacheKey = '';   // what the cached field A was built for; '' means not built
 let cmpShare = null;    // dataset share at year A, per view-field pixel
@@ -2219,6 +2291,8 @@ let speed = MODES.main.speed;
       : [lq];
     for (const ds of faiths()) ds.on = want.includes(ds.id);
   }
+  if (q.get('conf') === '0') showConf = false;
+  if (q.get('other') === '1') showOther = true;
   const fq = q.get('from');       // ?from=600&to=800 renders the change between two years
   if (fq !== null && Number.isFinite(+fq)) {
     cmpYear = Math.min(SIM_Y1, Math.max(SIM_Y0, +fq));
@@ -2419,11 +2493,31 @@ document.getElementById('frontierSel').addEventListener('change', e => {
 });
 document.getElementById('modeSel').addEventListener('change', e => {
   params.mode = e.target.value;
-  document.getElementById('legendNote').textContent = params.mode === 'percap'
-    ? 'log-scaled; per capita, brightness ignores population size where inhabited'
-    : 'log-scaled; brightness also weights population density';
+  updateLegendNote();
   needsRedraw = true;
 });
+// Three swatches showing what each confidence tier does to a fill, sampled from the same
+// ramp and the same wash the renderer uses, so the key cannot drift from the map.
+function buildConfKey() {
+  const el = document.getElementById('legConf');
+  const ds = DATASETS.find(d => d.kind === 'measure' && d.on) || activeFaiths()[0];
+  if (!showConf || !ds || cmpYear !== null) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const q = 210 * 4;
+  el.innerHTML = CONF_LABEL.map((label, tier) => {
+    const w = (1 - CONF_WEIGHT[tier]) * 0.75;
+    const rgb = [0, 1, 2].map(k => Math.round(ds.lut[q+k] + w * (LUT_NONE[q+k] - ds.lut[q+k]))).join(',');
+    return '<span class="mix-chip" style="background:rgb(' + rgb + ')"></span>' + label;
+  }).join(' ');
+}
+// One place decides what the legend footnote says, because two places drifted apart once.
+function updateLegendNote() {
+  document.getElementById('legendNote').textContent =
+    (params.mode === 'percap'
+      ? 'log-scaled; per capita, brightness ignores population size where inhabited'
+      : 'log-scaled; brightness also weights population density') +
+    (showConf ? '; washed toward grey where the figure is an estimate or a conjecture' : '');
+}
 
 /* ============ mode switching (issue #14) ============ */
 const speedSel = document.getElementById('speedSel');
@@ -2467,6 +2561,12 @@ function setMode(id) {
 }
 document.getElementById('modePicker').addEventListener('change', e => setMode(e.target.value));
 document.getElementById('cmpBtn').addEventListener('click', () => setCompare(cmpYear === null ? year : null));
+document.getElementById('confChk').addEventListener('change', e => {
+  showConf = e.target.checked; buildLegend(); needsRedraw = true; scheduleViewURL();
+});
+document.getElementById('otherChk').addEventListener('change', e => {
+  showOther = e.target.checked; buildLegend(); needsRedraw = true; scheduleViewURL();
+});
 
 let scrubbing = false;
 function scrubTo(clientX) {
@@ -2523,6 +2623,8 @@ function scheduleViewURL() {
       if (mOn) q.set('measure', mOn.id); else q.delete('measure');
       if (cmpYear !== null) { q.set('from', Math.round(cmpYear)); q.set('to', Math.round(year)); }
       else { q.delete('from'); q.delete('to'); }
+      if (!showConf) q.set('conf', '0'); else q.delete('conf');
+      if (showOther) q.set('other', '1'); else q.delete('other');
       const qs = q.toString();
       history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
     } catch (_) { /* history API unavailable (some file:// contexts); deep link just not updated */ }
@@ -2620,6 +2722,80 @@ function endPointer(e, isUp) {
 }
 canvas.addEventListener('pointerup', e => endPointer(e, true));
 canvas.addEventListener('pointercancel', e => endPointer(e, false));
+
+
+/* ============ confidence (#8) ============ */
+// How much is actually known about a figure, rendered rather than footnoted. Three tiers:
+// conjecture (no enumeration within centuries; the number carries a direction, not a
+// magnitude), estimate (published scholarly reconstruction), attested (a census or survey
+// within roughly fifty years). Encoded as two year thresholds per region per dataset, because
+// confidence changes with era far more than it varies region to region, and authoring 19
+// values per region per dataset would be a fiction of its own.
+//
+// `contested` is separate and does not improve with time: places where the quantity is not
+// measurable even now. France bans religious censuses. Russia's census carries no religion
+// question. "Buddhist" is not a well-defined share in China, Japan or Vietnam, where the 2019
+// state census says 4.8% and a 2024 survey says 38% of the same population. Nigeria's urban
+// series rests on one census, from 1953, against a 20,000-person threshold.
+const CONF = {
+  // [conjecture until, attested from] — the span between them is estimate
+  chr: { def: [300, 1850], reg: {
+    "Levant":[200,1900], "Anatolia":[200,1900], "Egypt":[200,1950], "Italy":[150,1850],
+    "Greece & Balkans":[250,1900], "Iberia":[250,1850], "France":[250,1850],
+    "Britain & Ireland":[350,1800], "Central Europe":[400,1850], "Scandinavia":[900,1850],
+    "Rus & Russia":[1000,1900], "Ethiopia & Horn":[400,1950], "Nubia & Sudan":[400,1950],
+    "India":[500,1900], "China":[700,2000], "North America":[1600,1800],
+    "Mesoamerica & Caribbean":[1500,1800], "South America":[1500,1850], "Philippines":[1550,1900] } },
+  isl: { def: [800, 1850], reg: {
+    "Arabia":[700,1950], "Levant":[700,1900], "Mesopotamia":[700,1950], "Persia":[700,1950],
+    "Egypt":[700,1950], "Maghreb":[750,1950], "Iberia":[750,1850], "Anatolia":[900,1900],
+    "India":[1000,1900], "Central Asia":[800,1950], "West Africa":[1100,1950],
+    "Maritime Southeast Asia":[1300,1900], "China":[900,2000] } },
+  bud: { def: [1200, 1900], reg: {
+    "India":[1400,1900], "Central Asia":[1850,9999], "China":[1950,2000],
+    "Korea & Japan":[1600,1900], "Mongolia":[1500,2000], "Tibet & Bhutan":[1700,2000],
+    "Nepal":[1700,2000], "Sri Lanka":[33,1850], "Mainland Southeast Asia":[1000,1900],
+    "Maritime Southeast Asia":[1850,1900], "Philippines":[1900,1950],
+    "Rus & Russia":[1700,2000], "Persia":[9999,9999] } },
+  urb: { def: [1500, 1900], reg: {
+    "Italy":[600,1850], "Britain & Ireland":[600,1800], "France":[600,1850], "Iberia":[600,1850],
+    "Greece & Balkans":[600,1850], "Central Europe":[1400,1850], "Scandinavia":[1400,1850],
+    "Poland & Baltics":[1400,1850], "Rus & Russia":[1400,1900],
+    "Egypt":[600,1950], "Levant":[600,1950], "Mesopotamia":[1400,1950], "Persia":[1400,1950],
+    "Maghreb":[1400,1950], "Central Asia":[1400,1950], "Anatolia":[1400,1950],
+    "Caucasus":[1900,9999], "Arabia":[1900,9999],
+    "China":[1600,1950], "Korea & Japan":[1500,1950], "India":[1500,1900],
+    "Mainland Southeast Asia":[1800,1950], "Maritime Southeast Asia":[1700,1950],
+    "Philippines":[1500,1900], "Sri Lanka":[1850,1900], "Tibet & Bhutan":[1900,1950],
+    "Nepal":[1900,1950], "Mongolia":[1900,1950],
+    "West Africa":[1800,1950], "Central Africa":[1900,1950], "East Africa":[1900,1950],
+    "Ethiopia & Horn":[1900,1950], "Nubia & Sudan":[1900,1950], "Southern Africa":[1800,1900],
+    "North America":[1700,1800], "Mesoamerica & Caribbean":[1500,1800],
+    "South America":[1500,1850], "Oceania":[1800,1850] } },
+};
+// region+dataset pairs where the figure is not measurable even now, from the year it stops
+// improving. Capped at estimate however late the anchor.
+const CONTESTED = {
+  chr: { "France": 1900, "Rus & Russia": 2000 },
+  isl: { "France": 1900, "Rus & Russia": 2000 },
+  bud: { "China": 33, "Korea & Japan": 1700, "Mainland Southeast Asia": 1950,
+         "Tibet & Bhutan": 2000, "Rus & Russia": 2000, "France": 1900 },
+  urb: { "West Africa": 1950, "Ethiopia & Horn": 1950, "Sri Lanka": 1950, "Nepal": 1950,
+         "Egypt": 1950, "India": 1950 },
+};
+const CONF_LABEL = ['conjecture', 'estimate', 'attested'];
+// what each tier is worth as a rendering weight: attested full strength, conjecture heavily
+// washed toward the neutral, estimate in between
+const CONF_WEIGHT = [0.22, 0.62, 1];
+function confOf(dsId, regName, year) {
+  const t = CONF[dsId];
+  if (!t) return 1;
+  const [cj, at] = t.reg[regName] || t.def;
+  let tier = year < cj ? 0 : year < at ? 1 : 2;
+  const cn = CONTESTED[dsId] && CONTESTED[dsId][regName];
+  if (cn !== undefined && year >= cn) tier = Math.min(tier, 1);
+  return tier;
+}
 
 /* ============ compare two years (#9) ============ */
 // Pin a year, scrub to another, and the map renders the change rather than the state. The
@@ -2753,8 +2929,12 @@ canvas.addEventListener('mousemove', e => {
   const reg = REGIONS[best];
   const pop = interp(reg.p, year);
   const pct = v => v < 0.01 ? (v*100).toFixed(2) : (v*100).toFixed(0);
-  const parts = DATASETS.filter(d => d.on)
-    .map(d => pct(interp(reg[d.key], year)) + '% ' + d.adj);
+  const parts = DATASETS.filter(d => d.on).map(d => {
+    const tier = confOf(d.id, reg.n, year);
+    const cn = CONTESTED[d.id] && CONTESTED[d.id][reg.n];
+    const note = (cn !== undefined && year >= cn) ? 'contested' : CONF_LABEL[tier];
+    return pct(interp(reg[d.key], year)) + '% ' + d.adj + ' <i>(' + note + ')</i>';
+  });
   parts.push('~' + (pop < 1 ? (pop*1000).toFixed(0) + 'k' : Math.round(pop) + 'M') + ' people');
   parts.push(year < 1000 ? 'AD ' + Math.round(year) : String(Math.round(year)));
   tooltip.innerHTML = `<b>${reg.n}</b><div class="tt-sub">est. ${parts.join(' &middot; ')}</div>`;
@@ -2837,6 +3017,8 @@ function buildLegend() {
         ? ' contested (' + band + ')' : ' mixed (' + band + ')');
     }
   }
+  buildConfKey();
+  updateLegendNote();
 }
 
 // data tables, one per visible dataset
@@ -2879,6 +3061,8 @@ function frame(t) {
 
 validateShares();
 buildLUT();
+document.getElementById('confChk').checked = showConf;
+document.getElementById('otherChk').checked = showOther;
 buildLayerToggles();   // after the deep-link block, which sets ds.on
 buildPopHud();
 buildLegend();
