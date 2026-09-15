@@ -228,6 +228,8 @@
     </select>
     <span class="ctl-label heat-only">Layers</span>
     <span class="chk-set heat-only" id="layerToggles"></span>
+    <span class="ctl-label heat-only">Measure</span>
+    <select id="measureSel" class="heat-only"></select>
   </div>
 
   <div class="narr-panel" id="narrPanel"></div>
@@ -609,11 +611,62 @@ const BUDDHIST_SHARES = {
 "Oceania":            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.003,.001,.015,.02]
 };
 
+// Share of each region's population living in settlements of 5,000 or more. That threshold
+// is a choice, not a standard, and it is the largest single source of error here: the same
+// England in 1800 is 20.3%, 27.5% or 33.8% urban depending only on whether the cut is 10,000,
+// 5,000 or 2,500. Bairoch's 5,000 is the spine; de Vries's 10,000 series was converted per
+// territory, and the UN's post-1950 national definitions are not comparable across countries
+// at all. See README before reading anything into a single figure.
+const URBAN_SHARES = {
+"Levant":            [.2,.22,.22,.22,.21,.17,.16,.17,.18,.14,.15,.16,.16,.15,.16,.2,.41,.69,.83],
+"Anatolia":          [.18,.2,.2,.2,.22,.2,.1,.12,.14,.1,.14,.19,.18,.17,.17,.17,.16,.59,.89],
+"Egypt":             [.25,.27,.24,.22,.2,.16,.16,.2,.22,.2,.2,.18,.17,.15,.18,.19,.31,.43,.43],
+"Maghreb":           [.15,.2,.22,.2,.18,.12,.1,.15,.17,.14,.14,.13,.12,.11,.12,.16,.27,.6,.72],
+"Greece & Balkans":  [.12,.14,.14,.13,.12,.1,.05,.07,.09,.08,.09,.1,.1,.11,.12,.16,.3,.59,.63],
+"Italy":             [.32,.33,.3,.25,.18,.07,.06,.09,.16,.14,.21,.22,.21,.22,.26,.37,.55,.67,.7],
+"Iberia":            [.13,.16,.16,.14,.12,.08,.08,.19,.17,.12,.12,.17,.14,.18,.23,.33,.46,.72,.77],
+"France":            [.08,.1,.1,.09,.08,.05,.04,.05,.09,.09,.09,.11,.14,.13,.19,.3,.55,.77,.79],
+"Britain & Ireland": [.01,.05,.05,.05,.04,.005,.01,.02,.06,.06,.05,.08,.15,.25,.36,.67,.78,.79,.82],
+"Central Europe":    [.01,.03,.04,.05,.04,.02,.02,.03,.08,.09,.1,.12,.13,.14,.22,.45,.65,.78,.83],
+"Scandinavia":       [.002,.002,.002,.002,.003,.005,.005,.01,.02,.03,.03,.04,.07,.08,.11,.25,.58,.79,.85],
+"Rus & Russia":      [.002,.002,.002,.002,.002,.003,.01,.03,.05,.03,.04,.05,.06,.07,.09,.14,.41,.72,.74],
+"Poland & Baltics":  [.002,.002,.002,.002,.002,.003,.005,.01,.02,.03,.04,.04,.04,.06,.08,.22,.39,.63,.61],
+"Mesopotamia":       [.2,.2,.22,.22,.22,.22,.3,.18,.12,.09,.1,.11,.11,.11,.13,.2,.35,.68,.7],
+"Persia":            [.1,.11,.12,.14,.15,.15,.16,.2,.2,.12,.14,.18,.16,.12,.13,.16,.28,.65,.77],
+"Caucasus":          [.06,.07,.08,.08,.08,.08,.09,.1,.12,.06,.07,.08,.09,.08,.11,.18,.4,.54,.61],
+"Arabia":            [.06,.06,.05,.05,.05,.05,.07,.07,.07,.07,.07,.07,.07,.05,.05,.06,.09,.56,.65],
+"Ethiopia & Horn":   [.02,.03,.03,.03,.03,.03,.02,.02,.02,.02,.02,.02,.03,.03,.03,.04,.07,.18,.28],
+"Nubia & Sudan":     [.05,.06,.06,.05,.04,.04,.05,.05,.05,.04,.04,.05,.06,.05,.05,.06,.06,.29,.32],
+"West Africa":       [.02,.02,.03,.03,.03,.04,.05,.06,.07,.08,.09,.09,.1,.11,.13,.11,.11,.42,.6],
+"Central Africa":    [.005,.005,.005,.005,.005,.01,.01,.01,.01,.02,.03,.03,.03,.03,.03,.03,.15,.4,.52],
+"East Africa":       [.005,.005,.005,.005,.005,.01,.01,.02,.02,.03,.02,.02,.02,.02,.03,.03,.04,.18,.34],
+"Southern Africa":   [.002,.002,.002,.002,.003,.005,.005,.008,.01,.01,.01,.01,.01,.01,.03,.11,.25,.45,.52],
+"India":             [.1,.11,.11,.1,.11,.1,.1,.1,.11,.1,.11,.13,.11,.1,.1,.1,.16,.28,.36],
+"Central Asia":      [.1,.11,.11,.1,.1,.12,.14,.18,.2,.08,.11,.11,.1,.08,.09,.14,.33,.46,.49],
+"China":             [.11,.12,.1,.09,.08,.11,.13,.15,.2,.1,.09,.09,.08,.07,.06,.06,.11,.36,.66],
+"Korea & Japan":     [.01,.02,.02,.03,.03,.05,.06,.06,.06,.06,.07,.1,.12,.12,.12,.17,.31,.77,.86],
+"North America":     [.005,.005,.005,.005,.005,.005,.008,.01,.012,.005,.005,.005,.008,.04,.12,.36,.64,.79,.81],
+"Mesoamerica & Caribbean": [.04,.05,.06,.07,.07,.08,.06,.04,.05,.06,.08,.07,.1,.11,.12,.16,.42,.71,.77],
+"South America":     [.01,.01,.02,.02,.02,.03,.03,.03,.03,.03,.03,.04,.05,.07,.1,.21,.44,.81,.87],
+"Oceania":           [.002,.002,.002,.002,.002,.002,.002,.002,.002,.002,.002,.002,.003,.005,.06,.42,.63,.71,.69],
+"Mainland Southeast Asia": [.02,.02,.03,.03,.03,.04,.04,.05,.07,.05,.05,.06,.06,.05,.05,.07,.11,.27,.44],
+"Maritime Southeast Asia": [.01,.01,.01,.02,.02,.03,.03,.03,.03,.04,.05,.07,.06,.04,.04,.06,.13,.44,.61],
+"Philippines":       [.005,.005,.005,.005,.005,.005,.01,.01,.01,.02,.02,.04,.04,.05,.06,.11,.25,.39,.56],
+"Sri Lanka":         [.05,.06,.06,.06,.07,.07,.07,.05,.06,.04,.04,.04,.04,.04,.06,.11,.15,.16,.21],
+"Tibet & Bhutan":    [.01,.01,.01,.01,.01,.02,.04,.03,.04,.04,.04,.05,.05,.05,.05,.04,.04,.14,.4],
+"Nepal":             [.005,.005,.005,.005,.005,.01,.02,.02,.03,.03,.03,.04,.04,.04,.04,.03,.03,.16,.43],
+"Mongolia":          [.01,.01,.01,.01,.01,.01,.03,.01,.02,.02,.02,.02,.02,.03,.04,.05,.2,.57,.71]
+};
+const URBAN_DEFAULT = [.01,.01,.01,.01,.01,.01,.01,.01,.02,.02,.02,.02,.02,.02,.03,.05,.12,.35,.5];
+
 const ZERO19 = new Array(19).fill(0);
 // One merge per dataset. ZERO19 is shared by every region that has no row, so nothing may
 // ever mutate a share array in place.
 REGIONS.forEach(r => r.si = r.si || ISLAM_SHARES[r.n] || ZERO19);
 REGIONS.forEach(r => r.sb = r.sb || BUDDHIST_SHARES[r.n] || ZERO19);
+// Urbanisation is never zero, so city and diaspora overlays fall back to a modern-urban
+// default rather than to ZERO19, which would read as uninhabited countryside.
+REGIONS.forEach(r => r.u = r.u || URBAN_SHARES[r.n] || URBAN_DEFAULT);
 
 // City markers: [name, lon, lat, activation year]
 const CITIES = [
@@ -880,7 +933,9 @@ function buildPressure(year, key) {
 /* ============ simulation ============ */
 const SIM_DT = 2, SNAP_EVERY = 8;
 const NSNAP = Math.floor(SIM_YSPAN / SNAP_EVERY) + 2;
-const params = { growth: 1, spread: 1, urban: 0.55, decline: 1, blend: 0.8, mode: 'pop', frontier: 'blend' };
+// `densExp` was named `urban` until urbanisation became an actual dataset. It is the
+// exponent on the population-density weighting, nothing to do with the urban share.
+const params = { growth: 1, spread: 1, densExp: 0.55, decline: 1, blend: 0.8, mode: 'pop', frontier: 'blend' };
 // contested-band ratios (issue #8): a cell blends purple only when the larger share is
 // within RxN of the smaller; otherwise the winner takes full color. Blend mode keeps a wide
 // band (lopsided cells like 10%/60% now read as the majority); majority mode narrows it to
@@ -907,6 +962,9 @@ const RAMP_RED = ['#fcdcd6','#f8c8c0','#f4b4aa','#efa095','#e98c80','#e2776b','#
 // simulating protanopia and deuteranopia over the whole hue circle at matched lightness and
 // scoring every candidate against both existing ramps; it holds dE 21.5 against blue and 23.2
 // against red, the most balanced survivor. See README.
+// Urbanisation fills the map on its own ramp while the faiths collapse to frontier lines
+// over it, so it never competes with a faith hue at the same lightness in the same role.
+const RAMP_URBAN = ['#fbd9c5','#f4c8ab','#efb690','#e6a477','#de925c','#d48143','#cb6e22','#ba5f0f','#a6540b','#934802','#803d01','#6e3200','#5b2900'];
 const RAMP_TEAL = ['#bde8ed','#9ddbe3','#77cfda','#4ac2d0','#00b6c7','#00a9bd','#009cb5','#008ea6','#007e94','#006f83','#006072','#005162','#004351'];
 const DATASETS = [
   { id: 'chr', kind: 'faith', label: 'Christianity', key: 's',  ramp: RAMP,     on: true,
@@ -922,6 +980,12 @@ const DATASETS = [
   { id: 'bud', kind: 'faith', label: 'Buddhism',     key: 'sb', ramp: RAMP_TEAL, on: false,
     adj: 'Buddhist', people: 'Buddhists', hue: 'teal',
     seedYear: 33,  seeds: [[cellOf(85.0, 24.7), .25], [cellOf(72.8, 33.7), .2], [cellOf(80.4, 8.3), .4]] },
+  // A measure is an independent metric of the same population, not a rival for it. It is
+  // constrained to be a share of local population (0-1) so it drops straight into the
+  // existing share pipeline, and it carries no seeds because it has nothing to diffuse.
+  { id: 'urb', kind: 'measure', label: 'Urban population', key: 'u', ramp: RAMP_URBAN, on: false,
+    adj: 'urban', people: 'Urban population', hue: 'amber',
+    note: 'settlements of 5,000+' },
 ];
 const DS = id => DATASETS.find(d => d.id === id);
 const faiths = () => DATASETS.filter(d => d.kind === 'faith');
@@ -1316,7 +1380,7 @@ function draw(year) {
   const cw = lonSpan / FW, ch = latSpan / FH;
   buildViewField(year, lon0, latTopV, cw, ch);
 
-  const urb = params.urban, blend = params.blend;
+  const urb = params.densExp, blend = params.blend;
   const act = activeFaiths(), NA = act.length;
   const nums = act.map(d => d.viewNum), luts = act.map(d => d.lut);
   const R = params.frontier === 'majority' ? R_MAJ : R_BLEND;
@@ -1327,11 +1391,18 @@ function draw(year) {
   // contested blend. So with three or more visible, contest moves off the hue channel and
   // onto texture. Exactly two visible keeps the original blend, unchanged.
   const hatch = NA > 2;
+  // A measure fills the map on its own ramp. Faiths cannot also fill it, so they collapse to
+  // their frontier: the line where the top two are closest to parity. MT_LINE is the same
+  // gate the contested band uses, narrowed, so the Frontier control still means something
+  // here (Blend draws a wider border, Majority a hairline).
+  const meas = DATASETS.find(d => d.kind === 'measure' && d.on) || null;
+  const measNum = meas ? meas.viewNum : null, measLut = meas ? meas.lut : null;
+  const MT_LINE = majority ? 0.04 : 0.09;
   const data = fimg.data;
   for (let idx = 0; idx < FW * FH; idx++) {
     const o = idx * 4;
     const d = viewDens[idx];
-    if (d <= 1e-6 || NA === 0) {
+    if (d <= 1e-6 || (NA === 0 && !DATASETS.some(x => x.kind === 'measure' && x.on))) {
       data[o] = data[o+1] = data[o+2] = data[o+3] = 0;
       continue;
     }
@@ -1360,6 +1431,28 @@ function draw(year) {
       if (sv > sa) { sb = sa; bi = ai; sa = sv; ai = n; }
       else if (sv > sb) { sb = sv; bi = n; }
       if (iv > imax) imax = iv;
+    }
+    if (meas) {
+      const mq = Math.min(255, Math.round(logT(measNum[idx] / d) * densFac * 255)) * 4;
+      data[o] = measLut[mq]; data[o+1] = measLut[mq+1];
+      data[o+2] = measLut[mq+2]; data[o+3] = measLut[mq+3];
+      // frontier line over the fill. The margin is smooth, so the line slides sub-pixel as
+      // the year advances instead of snapping cell to cell the way a hard argmax would.
+      if (bi >= 0 && sb >= MIXT) {
+        const m = (sa - sb) / (sa + sb);
+        if (m < MT_LINE) {
+          const F = luts[ai], fq = 255 * 4;
+          const la = (1 - m / MT_LINE) * 0.92, base = data[o+3] / 255;
+          const outA = la + base * (1 - la);
+          // non-premultiplied source-over: a naive lerp washes the line out wherever the
+          // measure fill underneath it is transparent
+          data[o]   = (F[fq]   * la + data[o]   * base * (1 - la)) / outA;
+          data[o+1] = (F[fq+1] * la + data[o+1] * base * (1 - la)) / outA;
+          data[o+2] = (F[fq+2] * la + data[o+2] * base * (1 - la)) / outA;
+          data[o+3] = outA * 255;
+        }
+      }
+      continue;
     }
     if (bi >= 0 && sb >= MIXT && sa < R * sb) {
       const q = Math.min(255, Math.round(imax * 255)) * 4;
@@ -2081,8 +2174,11 @@ let speed = MODES.main.speed;
     const want = lq.includes(',') ? lq.split(',').map(x => x.trim()).filter(Boolean)
       : [...lq].every(ch => LEGACY[ch]) ? [...lq].map(ch => LEGACY[ch])
       : [lq];
-    for (const ds of DATASETS) ds.on = want.includes(ds.id);
+    for (const ds of faiths()) ds.on = want.includes(ds.id);
   }
+  const mq2 = q.get('measure');   // ?measure=urb, or ?measure=none
+  if (mq2 !== null)
+    for (const ds of DATASETS) if (ds.kind === 'measure') ds.on = ds.id === mq2;
   if (q.get('frontier') === 'majority') {
     params.frontier = 'majority';
     document.getElementById('frontierSel').value = 'majority';
@@ -2196,18 +2292,28 @@ document.getElementById('speedSel').addEventListener('change', e => speed = +e.t
 // The page title and standfirst name whichever datasets are visible, so they cannot go stale
 // when a layer is toggled or a population type is added.
 function datasetTitle() {
-  const act = DATASETS.filter(d => d.on);
-  return act.length
-    ? listOf(act.map(d => d.adj)) + ' Share of Population, AD 33 to 2026'
+  // A measure fills the map, so it names the view; folding it into the faith list would
+  // read as "Christian, Muslim and urban share", which is not a thing.
+  const me = DATASETS.find(d => d.kind === 'measure' && d.on);
+  if (me) return me.label + ', AD 33 to 2026';
+  const fa = activeFaiths();
+  return fa.length
+    ? listOf(fa.map(d => d.adj)) + ' Share of Population, AD 33 to 2026'
     : 'Population Share, AD 33 to 2026';
 }
 function datasetSub() {
-  const act = DATASETS.filter(d => d.on);
-  if (!act.length) return 'No layers visible. Turn one on to see the map.';
+  const fa = activeFaiths(), me = DATASETS.find(d => d.kind === 'measure' && d.on);
+  if (!fa.length && !me) return 'No layers visible. Turn one on to see the map.';
+  const tail = '. Historical anchor data blended with a live diffusion model; drag the sliders to play.';
+  if (me) {
+    return me.label + ' (' + me.note + ') fills the map' +
+      (fa.length ? ', with ' + listOf(fa.map(d => d.label)) + ' reduced to their frontier lines over it' : '') +
+      tail;
+  }
   return 'Estimated share of local population through two millennia: ' +
-    listOf(act.map(d => d.label + ' in ' + d.hue)) +
-    (act.length > 1 ? ', contested ground blended between them' : '') +
-    '. Historical anchor data blended with a live diffusion model; drag the sliders to play.';
+    listOf(fa.map(d => d.label + ' in ' + d.hue)) +
+    (fa.length > 2 ? ', contested ground striped with the runner-up'
+      : fa.length > 1 ? ', contested ground blended between them' : '') + tail;
 }
 function updateTitles() {
   if (modeId !== 'main') return;
@@ -2222,14 +2328,26 @@ function setLayer(id, on) {
   buildLegend(); buildPopHud(); buildTables(); updateTitles(); buildRegionPanel();
   needsRedraw = true;
 }
-// Checkboxes are generated from the registry, after the deep-link block has set visibility.
+// Faiths are checkboxes because they coexist. Measures are a single-select because only one
+// can fill the map at a time, and offering checkboxes would imply otherwise.
 function buildLayerToggles() {
   const host = document.getElementById('layerToggles');
-  host.innerHTML = DATASETS.map(ds =>
+  host.innerHTML = faiths().map(ds =>
     '<label class="chk"><input type="checkbox" data-layer="' + ds.id + '"' +
     (ds.on ? ' checked' : '') + '> ' + ds.label + '</label>').join('');
   host.querySelectorAll('[data-layer]').forEach(cb =>
     cb.addEventListener('change', () => setLayer(cb.dataset.layer, cb.checked)));
+  const sel = document.getElementById('measureSel');
+  const ms = DATASETS.filter(d => d.kind === 'measure');
+  sel.innerHTML = '<option value="">None</option>' + ms.map(d =>
+    '<option value="' + d.id + '"' + (d.on ? ' selected' : '') + '>' + d.label + '</option>').join('');
+  sel.onchange = () => setMeasure(sel.value);
+}
+function setMeasure(id) {
+  for (const ds of DATASETS) if (ds.kind === 'measure') ds.on = ds.id === id;
+  buildLegend(); buildPopHud(); buildTables(); updateTitles(); buildRegionPanel();
+  needsRedraw = true;
+  scheduleViewURL();
 }
 document.getElementById('frontierSel').addEventListener('change', e => {
   params.frontier = e.target.value;
@@ -2313,7 +2431,7 @@ function scheduleResim() {
 }
 bind('pGrowth', 'oGrowth', 'growth', fmtX, true);
 bind('pSpread', 'oSpread', 'spread', fmtX, true);
-bind('pUrban', 'oUrban', 'urban', v => v.toFixed(2), false);
+bind('pUrban', 'oUrban', 'densExp', v => v.toFixed(2), false);
 bind('pDecline', 'oDecline', 'decline', fmtX, true);
 bind('pBlend', 'oBlend', 'blend', v => Math.round(v * 100) + '% history', false);
 
@@ -2337,6 +2455,8 @@ function scheduleViewURL() {
       else q.delete('view');
       if (inspectRi !== null) q.set('region', REGIONS[inspectRi].n);
       else q.delete('region');
+      const mOn = DATASETS.find(x => x.kind === 'measure' && x.on);
+      if (mOn) q.set('measure', mOn.id); else q.delete('measure');
       const qs = q.toString();
       history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
     } catch (_) { /* history API unavailable (some file:// contexts); deep link just not updated */ }
@@ -2549,10 +2669,10 @@ function buildLegend() {
     const stops = isDark() ? ramp.slice().reverse() : ramp;
     return `linear-gradient(to right, ${stops.map((c, i) => c + ' ' + (i / (stops.length - 1) * 100) + '%').join(',')})`;
   };
-  const act = activeFaiths();
+  const act = DATASETS.filter(d => d.on);
   const blocks = document.getElementById('legendBlocks');
   blocks.innerHTML = act.map(ds =>
-    '<div><div class="legend-name">' + ds.label + '</div>' +
+    '<div><div class="legend-name">' + ds.label + (ds.note ? ' <span style="color:var(--muted)">' + ds.note + '</span>' : '') + '</div>' +
     '<div class="legend-bar" style="background:' + grad(ds.ramp) + '"></div>' +
     '<div class="legend-ticks" data-ticks="' + ds.id + '"></div></div>').join('');
   for (const ds of act) {
@@ -2569,19 +2689,26 @@ function buildLegend() {
   // hardcoded purple that would be a lie for any pair but blue and red. The ratios come
   // from R_MAJ/R_BLEND rather than being retyped as prose.
   const mix = document.getElementById('legMix');
-  const pairs = [];
-  for (let i = 0; i < act.length; i++)
-    for (let j = i + 1; j < act.length; j++) pairs.push([act[i], act[j]]);
+  const fa = activeFaiths(), pairs = [];
+  for (let i = 0; i < fa.length; i++)
+    for (let j = i + 1; j < fa.length; j++) pairs.push([fa[i], fa[j]]);
+  if (DATASETS.some(d => d.kind === 'measure' && d.on)) {
+    mix.style.display = pairs.length ? '' : 'none';
+    if (pairs.length) mix.innerHTML =
+      '<span class="mix-chip" style="background:' + (isDark() ? fa[0].ramp[3] : fa[0].ramp[8]) + '"></span>' +
+      ' frontier lines, coloured by whichever faith leads';
+    return;
+  }
   mix.style.display = pairs.length ? '' : 'none';
   if (pairs.length) {
     const q = 255 * 4, band = params.frontier === 'majority'
       ? 'within ' + R_MAJ + '&times;'
       : 'both &ge; ' + (MIXT * 100) + '%, within ' + R_BLEND + '&times;';
-    if (act.length > 2) {
+    if (fa.length > 2) {
       // three or more faiths: contest is a stripe, not a hue
       mix.innerHTML = '<span class="mix-chip" style="background:repeating-linear-gradient(' +
-        '45deg,' + (isDark() ? act[0].ramp[3] : act[0].ramp[8]) + ' 0 3px,' +
-        (isDark() ? act[1].ramp[3] : act[1].ramp[8]) + ' 3px 5px)"></span>' +
+        '45deg,' + (isDark() ? fa[0].ramp[3] : fa[0].ramp[8]) + ' 0 3px,' +
+        (isDark() ? fa[1].ramp[3] : fa[1].ramp[8]) + ' 3px 5px)"></span>' +
         ' contested, striped with the runner-up (' + band + ')';
     } else {
       const chips = pairs.map(([a, b]) => {
