@@ -630,13 +630,13 @@ const EVENTS = [
 [1517,"Reformation"],[1683,"Siege of Vienna"],[1910,"World missions"]
 ];
 
-// Ocean crossings for the simulation: [fromLon,fromLat, toLon,toLat, openYear, religion]
+// Ocean crossings for the simulation: [fromLon,fromLat, toLon,toLat, openYear, datasetId]
 const ROUTES = [
-[-6,37, -70,19, 1493,'c'],[-9.1,38.7, -43.2,-22.9, 1500,'c'],[-9.1,38.7, 76.3,10, 1498,'c'],
-[-0.1,51.5, -71.1,42.4, 1607,'c'],[-99.1,19.4, 121,14.6, 1565,'c'],[4,51, 18.4,-33.9, 1652,'c'],
-[-0.1,51.5, 151.2,-33.9, 1788,'c'],
+[-6,37, -70,19, 1493,'chr'],[-9.1,38.7, -43.2,-22.9, 1500,'chr'],[-9.1,38.7, 76.3,10, 1498,'chr'],
+[-0.1,51.5, -71.1,42.4, 1607,'chr'],[-99.1,19.4, 121,14.6, 1565,'chr'],[4,51, 18.4,-33.9, 1652,'chr'],
+[-0.1,51.5, 151.2,-33.9, 1788,'chr'],
 // Islam: Yemen to the Swahili coast, Arabia to Java via Indian Ocean traders
-[44.1,17.5, 39.3,-6.8, 900,'m'],[46.7,24.7, 106.8,-6.2, 1250,'m']
+[44.1,17.5, 39.3,-6.8, 900,'isl'],[46.7,24.7, 106.8,-6.2, 1250,'isl']
 ];
 
 /* ============ grid + geometry ============ */
@@ -740,41 +740,45 @@ function interp(arr, year) {
 }
 
 const densF = new Float32Array(NCELL);
-const shareNumC = new Float32Array(NCELL);
-const shareNumM = new Float32Array(NCELL);
-const histShareC = new Float32Array(NCELL);
-const histShareM = new Float32Array(NCELL);
 let densMax = 1;
 
+// Accumulates the 2-degree population field and, for every registry entry, its
+// population-weighted share numerator (ds.shareNum) and the resulting share (ds.hist).
+// DATASETS is declared below with the simulation and read here at call time.
+//
+// INVARIANT: densF, regWeightSum and every ds.shareNum are shared scratch. Every consumer
+// copies out what it needs in the same synchronous block, which is what makes it safe for
+// the draw path and the simulation to share them. This breaks the moment anyone chunks
+// buildFields or buildViewField across animation frames.
+const _fieldSh = [];
 function buildFields(year) {
-  densF.fill(0); shareNumC.fill(0); shareNumM.fill(0);
+  const N = DATASETS.length;
+  densF.fill(0);
+  for (const ds of DATASETS) ds.shareNum.fill(0);
   buildRegWeights(year);
   for (const sp of SPLATS) {
     const pw = ptWeight(sp, year);
     if (pw <= 0 || regWeightSum[sp.ri] <= 0) continue;
     const reg = REGIONS[sp.ri];
     const pop = interp(reg.p, year) * pw / regWeightSum[sp.ri];
-    const shC = interp(reg.s, year);
-    const shM = interp(reg.si, year);
+    for (let n = 0; n < N; n++) _fieldSh[n] = interp(reg[DATASETS[n].key], year);
     const { cells, w } = sp;
     for (let k = 0; k < cells.length; k++) {
-      const add = pop * w[k];
-      densF[cells[k]] += add;
-      shareNumC[cells[k]] += add * shC;
-      shareNumM[cells[k]] += add * shM;
+      const add = pop * w[k], ci = cells[k];
+      densF[ci] += add;
+      for (let n = 0; n < N; n++) DATASETS[n].shareNum[ci] += add * _fieldSh[n];
     }
   }
   densMax = 1e-9;
   for (let i = 0; i < NCELL; i++) {
     const d = densF[i];
-    histShareC[i] = d > 1e-6 ? shareNumC[i] / d : 0;
-    histShareM[i] = d > 1e-6 ? shareNumM[i] / d : 0;
+    for (const ds of DATASETS) ds.hist[i] = d > 1e-6 ? ds.shareNum[i] / d : 0;
     if (d > densMax) densMax = d;
   }
 }
 
 // Per-region decline pressure (fraction of community lost per year), from anchor drops.
-// key is 's' (Christianity) or 'si' (Islam), so each faith feels its own collapse eras.
+// key is the dataset's own share key, so each faith feels its own collapse eras.
 function pressureOf(ri, year, key) {
   const s = REGIONS[ri][key];
   if (year >= ANCHORS[ANCHORS.length-1]) return 0;
@@ -804,53 +808,106 @@ function buildPressure(year, key) {
 /* ============ simulation ============ */
 const SIM_DT = 2, SNAP_EVERY = 8;
 const NSNAP = Math.floor(SIM_YSPAN / SNAP_EVERY) + 2;
-let simReady = false, simToken = 0;
 const params = { growth: 1, spread: 1, urban: 0.55, decline: 1, blend: 0.8, mode: 'pop', frontier: 'blend' };
 // contested-band ratios (issue #8): a cell blends purple only when the larger share is
 // within RxN of the smaller; otherwise the winner takes full color. Blend mode keeps a wide
 // band (lopsided cells like 10%/60% now read as the majority); majority mode narrows it to
 // near-parity so frontiers render as battle lines.
 const R_BLEND = 4.5, R_MAJ = 1.5;
-const layers = { c: true, m: true };
-// one sim pass per religion: share key, seed cell/year, snapshot buffer, routes
-const SIMS = [
-  { key: 's',  seeds: [[cellOf(35.2, 31.8), .005]], seedYear: 33,  snaps: new Uint8Array(NSNAP * NCELL) },
-  { key: 'si', seeds: [[cellOf(39.8, 21.4), .02], [cellOf(39.6, 24.5), .02]], seedYear: 622, snaps: new Uint8Array(NSNAP * NCELL) }
+
+/* ============ the dataset registry ============ */
+// One entry per population type. Adding a population type means adding an entry here and a
+// share table on REGIONS: the fields, the simulation, the renderer, the legend and the
+// tables all read this rather than naming datasets. `kind` discriminates:
+//   'faith'    a mutually exclusive share of one population. Faiths contest each other for
+//              the hue channel, and each gets its own diffusion pass.
+//   'measure'  an independent metric of that same population, also expressed as a share of
+//              it (0-1). Cannot contest, has no diffusion pass, carries no seeds.
+// Authored: id, kind, label, key (the 19-anchor array on each REGIONS entry), ramp, on,
+// plus seedYear/seeds for faiths. Derived at boot: lut, shareNum, hist, viewNum, and for
+// faiths snaps/token/ready.
+// Sequential ramps, low -> high, per theme (fillLUT reverses them for dark).
+// Blue = Christianity (validated reference palette); red = Islam (same lightness march).
+const RAMP = ['#cde2fb','#b7d3f6','#9ec5f4','#86b6ef','#6da7ec','#5598e7','#3987e5','#2a78d6','#256abf','#1c5cab','#184f95','#104281','#0d366b'];
+const RAMP_RED = ['#fcdcd6','#f8c8c0','#f4b4aa','#efa095','#e98c80','#e2776b','#d96256','#cf4c45','#bc3e3b','#a53431','#8b2b29','#712222','#591b1b'];
+const DATASETS = [
+  { id: 'chr', kind: 'faith', label: 'Christianity', key: 's',  ramp: RAMP,     on: true,
+    seedYear: 33,  seeds: [[cellOf(35.2, 31.8), .005]] },
+  { id: 'isl', kind: 'faith', label: 'Islam',        key: 'si', ramp: RAMP_RED, on: true,
+    seedYear: 622, seeds: [[cellOf(39.8, 21.4), .02], [cellOf(39.6, 24.5), .02]] },
 ];
+const DS = id => DATASETS.find(d => d.id === id);
+const faiths = () => DATASETS.filter(d => d.kind === 'faith');
+const activeFaiths = () => DATASETS.filter(d => d.kind === 'faith' && d.on);
+for (const ds of DATASETS) {
+  ds.lut = new Uint8ClampedArray(256 * 4);
+  ds.shareNum = new Float32Array(NCELL);
+  ds.hist = new Float32Array(NCELL);
+  ds.viewNum = null;                                  // sized by ensureViewBuffers
+  if (ds.kind === 'faith') {
+    ds.snaps = new Uint8Array(NSNAP * NCELL);         // ~3.9 MB per faith
+    ds.token = 0; ds.ready = false;
+  }
+}
+
 const routeCells = ROUTES.map(r => [cellOf(r[0], r[1]), cellOf(r[2], r[3]), r[4], r[5]]);
 
-function runSimulation() {
-  const token = ++simToken;
-  simReady = false;
+// Diffusion passes run one at a time, never concurrently. They are not safe to interleave:
+// buildPressure fills the single module-level pressF and the loop refreshes it every 24
+// sim-years, while a rAF chunk covers 120, so two passes sharing frames would apply each
+// other's decline eras for stretches at a time. Silent, non-deterministic, and only visible
+// in the years where two faiths' collapse eras differ, which is the whole point of the
+// model. The queue keeps exactly one pass in flight.
+const simQueue = [];
+let simBusy = false, simDone = 0;
+function enqueueSim(ds) {
+  if (ds.kind !== 'faith' || simQueue.includes(ds)) return;
+  ds.ready = false;
+  simQueue.push(ds);
+  if (!simBusy) runNextSim();
+}
+function runNextSim() {
+  const ds = simQueue[0];
+  if (!ds) {
+    simBusy = false; simDone = 0;
+    document.getElementById('simStatus').textContent = '';
+    needsRedraw = true;
+    return;
+  }
+  simBusy = true;
+  runSimulation(ds);
+}
+// Re-run every visible faith, e.g. after a parameter slider moves.
+function resimAll() {
+  simQueue.length = 0; simDone = 0; simBusy = false;
+  for (const ds of activeFaiths()) enqueueSim(ds);
+}
+
+function runSimulation(ds) {
+  const token = ++ds.token;
+  ds.ready = false;
   const status = document.getElementById('simStatus');
   const c = new Float32Array(NCELL), c2 = new Float32Array(NCELL);
   const suit = new Float32Array(NCELL);
   const capF = new Float32Array(NCELL);
-  let simIdx = 0, year = 0, snapIdx = 0, nextFieldRefresh = 0;
+  let year = SIM_Y0, snapIdx = 0, nextFieldRefresh = SIM_Y0;
+  ds.snaps.fill(0);
 
-  function beginPass() {
-    const sim = SIMS[simIdx];
-    c.fill(0); c2.fill(0);
-    sim.snaps.fill(0);
-    year = SIM_Y0; snapIdx = 0; nextFieldRefresh = SIM_Y0;
-  }
   function saveSnap() {
-    const off = snapIdx * NCELL, snaps = SIMS[simIdx].snaps;
+    const off = snapIdx * NCELL, snaps = ds.snaps;
     for (let i = 0; i < NCELL; i++) snaps[off + i] = Math.min(255, Math.round(c[i] * 255));
     snapIdx++;
   }
   function step() {
-    if (token !== simToken) return; // superseded by newer run
-    const sim = SIMS[simIdx];
-    const rel = sim.key === 's' ? 'c' : 'm';
+    if (token !== ds.token) return; // superseded by newer run
     const until = Math.min(SIM_Y1, year + 120);
     while (year < until) {
-      if (year === sim.seedYear || (year < sim.seedYear && year + SIM_DT > sim.seedYear)) {
-        for (const [sc, sv] of sim.seeds) c[sc] = Math.max(c[sc], sv);
+      if (year === ds.seedYear || (year < ds.seedYear && year + SIM_DT > ds.seedYear)) {
+        for (const [sc, sv] of ds.seeds) c[sc] = Math.max(c[sc], sv);
       }
       if (year >= nextFieldRefresh) {
-        buildFields(year); buildPressure(year, sim.key);
-        const hist = sim.key === 's' ? histShareC : histShareM;
+        buildFields(year); buildPressure(year, ds.key);
+        const hist = ds.hist;
         for (let k = 0; k < domainCells.length; k++) {
           const i = domainCells[k];
           suit[i] = LAND[i] ? Math.pow(densF[i] / densMax, 0.35) + 0.015 : 0;
@@ -859,7 +916,7 @@ function runSimulation() {
         }
         nextFieldRefresh = year + 24;
       }
-      if (year >= sim.seedYear) {
+      if (year >= ds.seedYear) {
         const r = 0.035 * params.growth, D = 0.06 * params.spread;
         const oceanKeep = Math.pow(0.82, SIM_DT);
         for (let k = 0; k < domainCells.length; k++) {
@@ -885,34 +942,34 @@ function runSimulation() {
           c2[i] = v < 1e-7 ? 0 : Math.min(1, v);
         }
         for (let k = 0; k < domainCells.length; k++) { const i = domainCells[k]; c[i] = c2[i]; }
-        // dated ocean routes for this religion
+        // dated ocean routes for this dataset
         for (const [a, b, ry, tag] of routeCells) {
-          if (tag === rel && year >= ry) c[b] = Math.min(1, c[b] + SIM_DT * 0.012 * params.spread * c[a] * (1 - c[b]));
+          if (tag === ds.id && year >= ry) c[b] = Math.min(1, c[b] + SIM_DT * 0.012 * params.spread * c[a] * (1 - c[b]));
         }
       }
       while (year + SIM_DT > SIM_Y0 + snapIdx * SNAP_EVERY && snapIdx < NSNAP) saveSnap();
       year += SIM_DT;
     }
     if (year < SIM_Y1) {
-      const frac = (simIdx + (year - SIM_Y0) / SIM_YSPAN) / SIMS.length;
+      const frac = (simDone + (year - SIM_Y0) / SIM_YSPAN) / (simDone + simQueue.length);
       status.textContent = 'computing model… ' + Math.round(100 * frac) + '%';
       requestAnimationFrame(step);
     } else {
       while (snapIdx < NSNAP) saveSnap();
-      simIdx++;
-      if (simIdx < SIMS.length) { beginPass(); requestAnimationFrame(step); return; }
-      simReady = true;
-      status.textContent = '';
+      ds.ready = true;
+      simDone++;
+      simQueue.shift();
       needsRedraw = true;
+      runNextSim();
     }
   }
-  beginPass();
   step();
 }
 // bilinear sample of the 2-degree sim grid at an arbitrary lon/lat (phase B: the sim stays
 // coarse; fine-zoom spatial detail comes from the analytic history field)
-function simShareLL(snaps, lon, lat, year) {
-  if (!simReady) return 0;
+function simShareLL(ds, lon, lat, year) {
+  if (!ds.ready) return 0;
+  const snaps = ds.snaps;
   const f = Math.min(NSNAP - 1.001, Math.max(0, (year - SIM_Y0) / SNAP_EVERY));
   const ft = f - (f | 0);
   const o0 = (f | 0) * NCELL, o1 = o0 + NCELL;
@@ -940,23 +997,24 @@ const ctx = canvas.getContext('2d');
 const fieldCanvas = document.createElement('canvas');
 const fctx = fieldCanvas.getContext('2d');
 const FW = 320;
-let FH = 0, fimg = null, viewDens = null, viewNumC = null, viewNumM = null;
+let FH = 0, fimg = null, viewDens = null;
 function ensureViewBuffers() {
   const fh = Math.max(16, Math.round(FW * H / W));
-  if (fh === FH && fimg) return;
+  if (fh === FH && fimg && DATASETS.every(d => d.viewNum)) return;
   FH = fh;
   fieldCanvas.width = FW; fieldCanvas.height = FH;
   fimg = fctx.createImageData(FW, FH);
   viewDens = new Float32Array(FW * FH);
-  viewNumC = new Float32Array(FW * FH);
-  viewNumM = new Float32Array(FW * FH);
+  for (const ds of DATASETS) ds.viewNum = new Float32Array(FW * FH);
 }
 // Evaluate the analytic gaussian field on the viewport grid. Mass-conserving anti-aliasing:
 // a point narrower than the current cell size renders with sigma clamped up to ~0.7 cells
 // and amplitude scaled down by the area ratio, so city-scale points dilute honestly at
 // world view and sharpen to their true footprint as the grid refines.
 function buildViewField(year, lon0, latTopV, cw, ch) {
-  viewDens.fill(0); viewNumC.fill(0); viewNumM.fill(0);
+  const N = DATASETS.length, nums = DATASETS.map(d => d.viewNum), sh = [];
+  viewDens.fill(0);
+  for (const a of nums) a.fill(0);
   buildRegWeights(year);
   const cs = Math.max(cw, ch);
   for (const pt of APTS) {
@@ -965,7 +1023,7 @@ function buildViewField(year, lon0, latTopV, cw, ch) {
     const reg = REGIONS[pt.ri];
     const pop = interp(reg.p, year) * pw / regWeightSum[pt.ri];
     if (pop <= 0) continue;
-    const shC = interp(reg.s, year), shM = interp(reg.si, year);
+    for (let n = 0; n < N; n++) sh[n] = interp(reg[DATASETS[n].key], year);
     const sig = Math.max(pt.sigDeg, 0.7 * cs);
     const amp = pop * 4 / (2 * Math.PI * sig * sig * pt.landFrac); // mass per 2-deg-cell-equivalent
     const rad = sig * 2.9;
@@ -982,21 +1040,14 @@ function buildViewField(year, lon0, latTopV, cw, ch) {
         const dx = (lon0 + (i + 0.5) * cw) - pt.lon;
         const g = Math.exp(-(dx * dx + dy2) * inv2s2);
         if (g < 0.008) continue;
-        const d = amp * g;
-        viewDens[row + i] += d;
-        viewNumC[row + i] += d * shC;
-        viewNumM[row + i] += d * shM;
+        const d = amp * g, ci = row + i;
+        viewDens[ci] += d;
+        for (let n = 0; n < N; n++) nums[n][ci] += d * sh[n];
       }
     }
   }
 }
 
-// Sequential ramps, low -> high, per theme. Blue = Christianity (validated reference palette);
-// red = Islam (diverging counterpart, same lightness march).
-const RAMP = ['#cde2fb','#b7d3f6','#9ec5f4','#86b6ef','#6da7ec','#5598e7','#3987e5','#2a78d6','#256abf','#1c5cab','#184f95','#104281','#0d366b'];
-const RAMP_RED = ['#fcdcd6','#f8c8c0','#f4b4aa','#efa095','#e98c80','#e2776b','#d96256','#cf4c45','#bc3e3b','#a53431','#8b2b29','#712222','#591b1b'];
-let LUT = new Uint8ClampedArray(256 * 4);
-let LUTM = new Uint8ClampedArray(256 * 4);
 function isDark() {
   const t = document.documentElement.getAttribute('data-theme');
   if (t) return t === 'dark';
@@ -1014,7 +1065,7 @@ function fillLUT(lut, ramp) {
     lut[v*4+3] = Math.round(255 * Math.min(0.95, Math.pow(t, 0.85) * 1.05));
   }
 }
-function buildLUT() { fillLUT(LUT, RAMP); fillLUT(LUTM, RAMP_RED); }
+function buildLUT() { for (const ds of DATASETS) fillLUT(ds.lut, ds.ramp); }
 
 const K = 150, LOGK = Math.log(1 + K);
 const logT = s => s <= 0 ? 0 : Math.log(1 + K * s) / LOGK;
@@ -1138,7 +1189,9 @@ function resize() {
 
 function cssVar(name) { return getComputedStyle(document.querySelector('.viz-root')).getPropertyValue(name).trim(); }
 
-const MIXT = 0.02; // both faiths above this share = genuine co-presence, rendered as a blend
+const MIXT = 0.02;  // two faiths both above this share = genuine co-presence, rendered as a blend
+// per-pixel scratch for the top-two scan, sized to the registry so it never reallocates
+const shScr = new Float64Array(16), inScr = new Float64Array(16);
 function draw(year) {
   if (!M().layers.heat) { drawBase(); return; }   // narrative modes render map only (#14)
   buildFields(year);        // 2-degree pass still supplies densMax (global brightness scale)
@@ -1151,50 +1204,62 @@ function draw(year) {
   buildViewField(year, lon0, latTopV, cw, ch);
 
   const urb = params.urban, blend = params.blend;
-  const showC = layers.c, showM = layers.m;
-  const snapsC = SIMS[0].snaps, snapsM = SIMS[1].snaps;
+  const act = activeFaiths(), NA = act.length;
+  const nums = act.map(d => d.viewNum), luts = act.map(d => d.lut);
+  const R = params.frontier === 'majority' ? R_MAJ : R_BLEND;
+  const majority = params.frontier === 'majority';
   const data = fimg.data;
   for (let idx = 0; idx < FW * FH; idx++) {
     const o = idx * 4;
     const d = viewDens[idx];
-    if (d <= 1e-6 || (!showC && !showM)) {
+    if (d <= 1e-6 || NA === 0) {
       data[o] = data[o+1] = data[o+2] = data[o+3] = 0;
       continue;
     }
-    const hC = viewNumC[idx] / d, hM = viewNumM[idx] / d;
     // population-weighted: saturating density factor (cells above ~12% of world max read full strength)
     // per capita: share alone wherever meaningfully inhabited (soft gate keeps empty deserts dark)
     const densFac = params.mode === 'percap'
       ? Math.min(1, d / (0.02 * densMax))
       : Math.pow(Math.min(1, d / (0.12 * densMax)), urb);
-    // linear shares decide dominance and mixing; log-space blend drives brightness
     const lonC = lon0 + ((idx % FW) + 0.5) * cw;
     const latC = latTopV - (((idx / FW) | 0) + 0.5) * ch;
-    const simC = simShareLL(snapsC, lonC, latC, year), simM = simShareLL(snapsM, lonC, latC, year);
-    const sC = showC ? blend * hC + (1 - blend) * simC : 0;
-    const sM = showM ? blend * hM + (1 - blend) * simM : 0;
-    const iC = showC ? (blend * logT(hC) + (1 - blend) * logT(simC)) * densFac : 0;
-    const iM = showM ? (blend * logT(hM) + (1 - blend) * logT(simM)) * densFac : 0;
-    const mn = Math.min(sC, sM), mx = Math.max(sC, sM);
-    const R = params.frontier === 'majority' ? R_MAJ : R_BLEND;
-    if (showC && showM && mn >= MIXT && mx < R * mn) {
-      // contested cell. Blend mode: ramps blended by relative share, gently minority-weighted
-      // (exponent < 1) so a 10-15% minority reads as a tint. Majority mode: a flat 50/50
-      // purple, so the narrow contested band draws the frontier as a line.
-      const rC = Math.pow(sC, 0.75), rM = Math.pow(sM, 0.75);
-      const t = params.frontier === 'majority' ? 0.5 : rM / (rC + rM);
-      const q = Math.min(255, Math.round(Math.max(iC, iM) * 255)) * 4;
-      data[o]   = LUT[q]   + t * (LUTM[q]   - LUT[q]);
-      data[o+1] = LUT[q+1] + t * (LUTM[q+1] - LUT[q+1]);
-      data[o+2] = LUT[q+2] + t * (LUTM[q+2] - LUT[q+2]);
-      data[o+3] = LUT[q+3];
-    } else if (sM > sC) {
-      // winner-take-all below the mix threshold keeps unmixed frontiers crisp
-      const q = Math.min(255, Math.round(iM * 255)) * 4;
-      data[o] = LUTM[q]; data[o+1] = LUTM[q+1]; data[o+2] = LUTM[q+2]; data[o+3] = LUTM[q+3];
+    // Linear shares decide dominance and mixing; log-space blend drives brightness. The two
+    // genuinely disagree in places, and that is deliberate: who leads is a demographic fact,
+    // how bright it reads is a legibility choice. One scan finds the top two and the
+    // brightest, so the cost is linear in the number of visible faiths.
+    let ai = -1, bi = -1, sa = -1, sb = -1, imax = 0;
+    for (let n = 0; n < NA; n++) {
+      const ds = act[n];
+      const h = nums[n][idx] / d;
+      const sim = simShareLL(ds, lonC, latC, year);
+      // a faith whose pass has not landed yet reads as pure history, not 20% dim
+      const bl = ds.ready ? blend : 1;
+      const sv = bl * h + (1 - bl) * sim;
+      const iv = (bl * logT(h) + (1 - bl) * logT(sim)) * densFac;
+      shScr[n] = sv; inScr[n] = iv;
+      if (sv > sa) { sb = sa; bi = ai; sa = sv; ai = n; }
+      else if (sv > sb) { sb = sv; bi = n; }
+      if (iv > imax) imax = iv;
+    }
+    if (bi >= 0 && sb >= MIXT && sa < R * sb) {
+      // Contested cell. Blend mode: ramps blended by relative share, gently minority-weighted
+      // (exponent < 1) so a 10-15% minority reads as a tint. Majority mode: a flat 50/50, so
+      // the narrow contested band draws the frontier as a line. The lerp always runs in
+      // registry order, so the colour of a contested cell does not depend on which of the two
+      // happens to be ahead at that pixel.
+      const lo = ai < bi ? ai : bi, hi = ai < bi ? bi : ai;
+      const rL = Math.pow(shScr[lo], 0.75), rH = Math.pow(shScr[hi], 0.75);
+      const t = majority ? 0.5 : rH / (rL + rH);
+      const A = luts[lo], B = luts[hi];
+      const q = Math.min(255, Math.round(imax * 255)) * 4;
+      data[o]   = A[q]   + t * (B[q]   - A[q]);
+      data[o+1] = A[q+1] + t * (B[q+1] - A[q+1]);
+      data[o+2] = A[q+2] + t * (B[q+2] - A[q+2]);
+      data[o+3] = A[q+3];
     } else {
-      const q = Math.min(255, Math.round(iC * 255)) * 4;
-      data[o] = LUT[q]; data[o+1] = LUT[q+1]; data[o+2] = LUT[q+2]; data[o+3] = LUT[q+3];
+      // winner-take-all below the mix threshold keeps unmixed frontiers crisp
+      const L = luts[ai], q = Math.min(255, Math.round(inScr[ai] * 255)) * 4;
+      data[o] = L[q]; data[o+1] = L[q+1]; data[o+2] = L[q+2]; data[o+3] = L[q+3];
     }
   }
   fctx.putImageData(fimg, 0, 0);
@@ -1879,9 +1944,9 @@ let speed = MODES.main.speed;
   }
   const lq = q.get('layers'); // e.g. ?layers=c, ?layers=m, ?layers=cm
   if (lq) {
-    layers.c = lq.includes('c'); layers.m = lq.includes('m');
-    document.getElementById('layerC').checked = layers.c;
-    document.getElementById('layerM').checked = layers.m;
+    DS('chr').on = lq.includes('c'); DS('isl').on = lq.includes('m');
+    document.getElementById('layerC').checked = DS('chr').on;
+    document.getElementById('layerM').checked = DS('isl').on;
   }
   if (q.get('frontier') === 'majority') {
     params.frontier = 'majority';
@@ -1974,8 +2039,15 @@ playBtn.addEventListener('click', () => {
   playing = !playing; needsRedraw = true;
 });
 document.getElementById('speedSel').addEventListener('change', e => speed = +e.target.value);
-document.getElementById('layerC').addEventListener('change', e => { layers.c = e.target.checked; buildLegend(); needsRedraw = true; });
-document.getElementById('layerM').addEventListener('change', e => { layers.m = e.target.checked; buildLegend(); needsRedraw = true; });
+const setLayer = (id, on) => {
+  const ds = DS(id);
+  ds.on = on;
+  if (on && ds.kind === 'faith' && !ds.ready) enqueueSim(ds);   // simulate on first reveal
+  buildLegend();
+  needsRedraw = true;
+};
+document.getElementById('layerC').addEventListener('change', e => setLayer('chr', e.target.checked));
+document.getElementById('layerM').addEventListener('change', e => setLayer('isl', e.target.checked));
 document.getElementById('frontierSel').addEventListener('change', e => {
   params.frontier = e.target.value;
   buildLegend();
@@ -2053,7 +2125,7 @@ const bind = (id, out, key, fmt, resim) => {
 let resimTimer = null;
 function scheduleResim() {
   clearTimeout(resimTimer);
-  resimTimer = setTimeout(runSimulation, 350);
+  resimTimer = setTimeout(resimAll, 350);
 }
 bind('pGrowth', 'oGrowth', 'growth', fmtX, true);
 bind('pSpread', 'oSpread', 'spread', fmtX, true);
@@ -2213,10 +2285,10 @@ function buildLegend() {
       ticks.appendChild(s);
     }
   }
-  document.getElementById('legC').style.display = layers.c ? '' : 'none';
-  document.getElementById('legM').style.display = layers.m ? '' : 'none';
+  document.getElementById('legC').style.display = DS('chr').on ? '' : 'none';
+  document.getElementById('legM').style.display = DS('isl').on ? '' : 'none';
   const mix = document.getElementById('legMix');
-  mix.style.display = (layers.c && layers.m) ? '' : 'none';
+  mix.style.display = (DS('chr').on && DS('isl').on) ? '' : 'none';
   mix.innerHTML = params.frontier === 'majority'
     ? '<span class="mix-chip" style="background:#846995"></span> contested (within 1.5&times;)'
     : '<span class="mix-chip" style="background:#846995"></span> mixed (both &ge; 2%, within 4.5&times;)';
@@ -2267,7 +2339,7 @@ resize();
 onCamChange();   // reflect a ?view= deep link in the reset button and cursor
 if (new URLSearchParams(location.search).get('fs') === '1') toggleFs();
 window.addEventListener('resize', resize);
-runSimulation();
+resimAll();
 requestAnimationFrame(frame);
 </script>
 </body>
