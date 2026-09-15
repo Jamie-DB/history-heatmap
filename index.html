@@ -387,10 +387,18 @@ const REGIONS = [
 {n:"Korea & Japan", pts:[[127,37.6,1],[139.7,35.7,.9],[129.9,32.8,.5],[135.5,34.7,.6]],
  s:[0,0,0,0,0,0,0,0,0,0,.001,.012,.002,.002,.004,.01,.05,.13,.14],
  p:[3,4,5,6,7,8,10,12,14,17,20,25,32,38,45,60,105,175,175]},
-// These seven carry a per-point sigma of 2.0 grid cells (4 degrees) rather than the 3.2
+// These seven carry a per-point sigma set by real geographic extent rather than the 3.2-cell
 // default, because they are an order of magnitude smaller than China or India and the wide
-// splat bled Malaysia's Muslim share into Thailand: Bangkok read 23% Muslim against the
-// region's own 3.5%. At 2.0 it reads 9%, which is honest bleed across a shared peninsula.
+// splat bled Malaysia's Muslim share up the peninsula: Bangkok read 23% Muslim against the
+// region's own 3.5%.
+//
+// The analytic render field is a pure gaussian with no land mask (paintMap clips to land
+// afterwards), so a small region beside a huge one is diluted by its neighbour's mass no
+// matter how tight its own splat is. Sri Lanka at AD 600 is 85% Buddhist in the data but
+// renders nearer 50%, because India carries 68 million people against its 1.2 and has a
+// weight point at Chennai five degrees away. Tightening its sigma recovers most of the
+// difference and the region inspector shows the true curve; the rest is a property of the
+// model, not a bug in the data.
 // Southeast Asia is split three ways and the Himalaya two ways, because an averaged region
 // asserts a blend nobody lives in: mainland SE Asia is ~80% Buddhist and maritime ~85% Muslim,
 // and the Philippines is ~90% Christian. Tibet is ~90% Buddhist while Nepal, which holds
@@ -404,19 +412,19 @@ const REGIONS = [
  s:[0,0,0,0,0,0,0,0,0,0,0,.005,.01,.01,.015,.025,.05,.09,.11],
  si:[0,0,0,0,0,0,0,.001,.005,.05,.15,.5,.7,.8,.83,.85,.86,.83,.82],
  p:[2,2,2,3,3,4,5,5,6,7,8,10,11,14,21,42,80,240,330]},
-{n:"Philippines", pts:[[121,14.6,1,0,2],[123.9,10.3,.5,0,2],[125.6,7.1,.4,0,2]],
+{n:"Philippines", pts:[[121,14.6,1,0,1.5],[123.9,10.3,.5,0,1.5],[125.6,7.1,.4,0,1.5]],
  s:[0,0,0,0,0,0,0,0,0,0,0,.5,.8,.88,.9,.9,.92,.92,.9],
  si:[0,0,0,0,0,0,0,0,0,.02,.1,.08,.07,.06,.05,.05,.05,.055,.065],
  p:[.3,.3,.4,.4,.5,.6,.7,.8,1,1.2,1.5,1,1.2,1.6,3.5,7.6,19,78,115]},
-{n:"Sri Lanka", pts:[[79.9,6.9,1,0,2],[80.6,7.3,.5,0,2],[80,9.7,.4,0,2]],
+{n:"Sri Lanka", pts:[[79.9,6.9,1,0,0.8],[80.6,7.3,.5,0,0.8],[80,9.7,.4,0,0.8]],
  s:[0,0,0,0,0,.002,.002,.002,.001,.001,.001,.06,.1,.1,.1,.1,.09,.08,.075],
  si:[0,0,0,0,0,0,.005,.01,.03,.05,.06,.06,.06,.06,.065,.07,.065,.085,.105],
  p:[.8,.8,1,1,1.2,1.2,1.5,1.5,2,1.2,1.2,1,1,1.2,1.7,3.6,8,19,23]},
-{n:"Tibet & Bhutan", pts:[[91.1,29.7,1,0,2],[88.6,29.3,.4,0,2],[89.6,27.5,.4,0,2]],
+{n:"Tibet & Bhutan", pts:[[91.1,29.7,1,0,1.2],[88.6,29.3,.4,0,1.2],[89.6,27.5,.4,0,1.2]],
  s:[0,0,0,0,0,0,.002,.002,.001,0,0,.002,.004,0,0,0,.001,.002,.003],
  si:[0,0,0,0,0,0,0,.001,.002,.003,.004,.005,.006,.006,.006,.006,.005,.005,.005],
  p:[.4,.4,.5,.5,.5,.8,1,.9,1,1,1,1,1,1.2,1.2,1.5,1.5,3.2,4.5]},
-{n:"Nepal", pts:[[85.3,27.7,1,0,2],[85.5,26.7,.9,0,2],[83.9,28.2,.4,0,2]],
+{n:"Nepal", pts:[[85.3,27.7,1,0,1],[85.5,26.7,.9,0,1],[83.9,28.2,.4,0,1]],
  s:[0,0,0,0,0,0,0,0,0,0,0,0,.001,0,0,.0005,.001,.005,.019],
  si:[0,0,0,0,0,0,0,.001,.002,.003,.006,.012,.018,.025,.03,.035,.04,.048,.051],
  p:[.8,.8,1,1,1,1.2,1.5,1.5,1.7,1.7,2,2.5,3,3.5,4,5.5,8.5,24,31]},
@@ -572,8 +580,40 @@ const ISLAM_SHARES = {
 "South America":     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.002,.003,.003],
 "Oceania":           [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.005,.02,.026]
 };
+// Buddhist share at the same anchors. Unlike ISLAM_SHARES this does not start at zero:
+// Buddhism is roughly five centuries old at AD 33, already established across the Gangetic
+// plain, Sri Lanka and Gandhara, so the table opens mid-history and the story it tells is
+// mostly one of retreat. "Share" here is affiliation and practice, not an exclusive creed
+// count; see README for the syncretism and dual-affiliation caveats (China, Japan, Vietnam).
+const BUDDHIST_SHARES = {
+"India":              [.12,.18,.24,.26,.27,.22,.15,.09,.03,.005,.003,.002,.002,.001,.001,.001,.001,.007,.007],
+"Central Asia":       [.15,.3,.35,.3,.35,.4,.25,.12,.05,.01,.005,.005,.02,.004,.003,.003,.002,.002,.002],
+"China":              [0,.001,.01,.04,.12,.3,.35,.2,.22,.2,.2,.2,.2,.2,.2,.2,.18,.12,.15],
+"Korea & Japan":      [0,0,0,0,.02,.12,.4,.55,.65,.6,.55,.55,.62,.62,.62,.5,.48,.42,.35],
+"Persia":             [0,.003,.008,.01,.01,.008,.003,.001,0,0,0,0,0,0,0,0,0,0,0],
+"Mainland Southeast Asia": [.005,.01,.03,.08,.15,.3,.4,.45,.6,.75,.8,.82,.82,.82,.82,.8,.78,.73,.72],
+"Maritime Southeast Asia": [0,.01,.02,.04,.06,.12,.25,.25,.25,.15,.08,.02,.01,.008,.008,.012,.02,.03,.03],
+"Philippines":        [0,0,0,0,0,0,.002,.005,.005,.005,.003,0,0,0,0,.001,.002,.002,.002],
+"Sri Lanka":          [.7,.75,.8,.8,.85,.85,.85,.75,.8,.78,.76,.72,.7,.68,.64,.6,.64,.69,.7],
+"Tibet & Bhutan":     [0,0,0,.005,.01,.05,.6,.5,.75,.8,.85,.88,.9,.9,.9,.9,.85,.75,.75],
+"Nepal":              [.25,.25,.25,.25,.3,.3,.3,.3,.3,.3,.28,.25,.2,.15,.12,.1,.09,.085,.08],
+"Mongolia":           [0,0,0,0,0,0,.002,.005,.02,.05,.05,.4,.8,.9,.9,.9,.1,.45,.52],
+"Rus & Russia":       [0,0,0,0,0,0,0,0,0,0,0,0,.01,.006,.006,.005,.001,.004,.005],
+"Italy":              [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0005,.002,.003],
+"Britain & Ireland":  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0005,.003,.005],
+"France":             [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0005,.005,.007],
+"Central Europe":     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0005,.003,.004],
+"Scandinavia":        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0005,.003,.005],
+"North America":      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.002,.008,.011],
+"South America":      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.002,.002],
+"Oceania":            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.003,.001,.015,.02]
+};
+
 const ZERO19 = new Array(19).fill(0);
+// One merge per dataset. ZERO19 is shared by every region that has no row, so nothing may
+// ever mutate a share array in place.
 REGIONS.forEach(r => r.si = r.si || ISLAM_SHARES[r.n] || ZERO19);
+REGIONS.forEach(r => r.sb = r.sb || BUDDHIST_SHARES[r.n] || ZERO19);
 
 // City markers: [name, lon, lat, activation year]
 const CITIES = [
@@ -662,7 +702,13 @@ const ROUTES = [
 [-0.1,51.5, -71.1,42.4, 1607,'chr'],[-99.1,19.4, 121,14.6, 1565,'chr'],[4,51, 18.4,-33.9, 1652,'chr'],
 [-0.1,51.5, 151.2,-33.9, 1788,'chr'],
 // Islam: Yemen to the Swahili coast, Arabia to Java via Indian Ocean traders
-[44.1,17.5, 39.3,-6.8, 900,'isl'],[46.7,24.7, 106.8,-6.2, 1250,'isl']
+[44.1,17.5, 39.3,-6.8, 900,'isl'],[46.7,24.7, 106.8,-6.2, 1250,'isl'],
+// Buddhism: the Silk Road into China, the Sri Lanka and Suvarnabhumi sea routes, the
+// transmissions to Korea (372) and Japan (552), and the Nepal-Tibet route (c. 640)
+[72.8,33.7, 75.9,39.5, 67,'bud'],[75.9,39.5, 94.7,40.1, 120,'bud'],[94.7,40.1, 112.4,34.7, 200,'bud'],
+[85.0,24.7, 80.4,8.3, 33,'bud'],[80.4,8.3, 96.2,17.0, 400,'bud'],
+[112.4,34.7, 127.0,37.6, 372,'bud'],[127.0,37.6, 135.8,34.7, 552,'bud'],
+[85.3,27.7, 91.1,29.7, 640,'bud']
 ];
 
 /* ============ grid + geometry ============ */
@@ -856,6 +902,12 @@ const R_BLEND = 4.5, R_MAJ = 1.5;
 // Blue = Christianity (validated reference palette); red = Islam (same lightness march).
 const RAMP = ['#cde2fb','#b7d3f6','#9ec5f4','#86b6ef','#6da7ec','#5598e7','#3987e5','#2a78d6','#256abf','#1c5cab','#184f95','#104281','#0d366b'];
 const RAMP_RED = ['#fcdcd6','#f8c8c0','#f4b4aa','#efa095','#e98c80','#e2776b','#d96256','#cf4c45','#bc3e3b','#a53431','#8b2b29','#712222','#591b1b'];
+// Buddhism is teal, not saffron. Saffron is the culturally obvious choice and it is
+// unavailable: to a deuteranope saffron and this red are the same colour. Teal was picked by
+// simulating protanopia and deuteranopia over the whole hue circle at matched lightness and
+// scoring every candidate against both existing ramps; it holds dE 21.5 against blue and 23.2
+// against red, the most balanced survivor. See README.
+const RAMP_TEAL = ['#bde8ed','#9ddbe3','#77cfda','#4ac2d0','#00b6c7','#00a9bd','#009cb5','#008ea6','#007e94','#006f83','#006072','#005162','#004351'];
 const DATASETS = [
   { id: 'chr', kind: 'faith', label: 'Christianity', key: 's',  ramp: RAMP,     on: true,
     adj: 'Christian', people: 'Christians', hue: 'blue',
@@ -863,6 +915,13 @@ const DATASETS = [
   { id: 'isl', kind: 'faith', label: 'Islam',        key: 'si', ramp: RAMP_RED, on: true,
     adj: 'Muslim', people: 'Muslims', hue: 'red',
     seedYear: 622, seeds: [[cellOf(39.8, 21.4), .02], [cellOf(39.6, 24.5), .02]] },
+  // Buddhism is already ~5 centuries old at the first anchor, so unlike the other two its
+  // share table does not start at zero and its seeds are its AD 33 heartlands rather than a
+  // point of origin: Magadha, Gandhara and Anuradhapura. Off by default, so the familiar
+  // two-faith map is what loads; the diffusion pass only runs if you switch it on.
+  { id: 'bud', kind: 'faith', label: 'Buddhism',     key: 'sb', ramp: RAMP_TEAL, on: false,
+    adj: 'Buddhist', people: 'Buddhists', hue: 'teal',
+    seedYear: 33,  seeds: [[cellOf(85.0, 24.7), .25], [cellOf(72.8, 33.7), .2], [cellOf(80.4, 8.3), .4]] },
 ];
 const DS = id => DATASETS.find(d => d.id === id);
 const faiths = () => DATASETS.filter(d => d.kind === 'faith');
@@ -1262,6 +1321,12 @@ function draw(year) {
   const nums = act.map(d => d.viewNum), luts = act.map(d => d.lut);
   const R = params.frontier === 'majority' ? R_MAJ : R_BLEND;
   const majority = params.frontier === 'majority';
+  // Two faiths blend into a shared hue; three or more cannot. The blue-to-red blend sweeps
+  // the whole hue space a third faith would have to occupy, and under dichromacy there is
+  // nowhere left to stand: every candidate third hue measured within a few dE of some
+  // contested blend. So with three or more visible, contest moves off the hue channel and
+  // onto texture. Exactly two visible keeps the original blend, unchanged.
+  const hatch = NA > 2;
   const data = fimg.data;
   for (let idx = 0; idx < FW * FH; idx++) {
     const o = idx * 4;
@@ -1275,8 +1340,9 @@ function draw(year) {
     const densFac = params.mode === 'percap'
       ? Math.min(1, d / (0.02 * densMax))
       : Math.pow(Math.min(1, d / (0.12 * densMax)), urb);
-    const lonC = lon0 + ((idx % FW) + 0.5) * cw;
-    const latC = latTopV - (((idx / FW) | 0) + 0.5) * ch;
+    const ix = idx % FW, iy = (idx / FW) | 0;
+    const lonC = lon0 + (ix + 0.5) * cw;
+    const latC = latTopV - (iy + 0.5) * ch;
     // Linear shares decide dominance and mixing; log-space blend drives brightness. The two
     // genuinely disagree in places, and that is deliberate: who leads is a demographic fact,
     // how bright it reads is a legibility choice. One scan finds the top two and the
@@ -1296,20 +1362,28 @@ function draw(year) {
       if (iv > imax) imax = iv;
     }
     if (bi >= 0 && sb >= MIXT && sa < R * sb) {
-      // Contested cell. Blend mode: ramps blended by relative share, gently minority-weighted
-      // (exponent < 1) so a 10-15% minority reads as a tint. Majority mode: a flat 50/50, so
-      // the narrow contested band draws the frontier as a line. The lerp always runs in
-      // registry order, so the colour of a contested cell does not depend on which of the two
-      // happens to be ahead at that pixel.
-      const lo = ai < bi ? ai : bi, hi = ai < bi ? bi : ai;
-      const rL = Math.pow(shScr[lo], 0.75), rH = Math.pow(shScr[hi], 0.75);
-      const t = majority ? 0.5 : rH / (rL + rH);
-      const A = luts[lo], B = luts[hi];
       const q = Math.min(255, Math.round(imax * 255)) * 4;
-      data[o]   = A[q]   + t * (B[q]   - A[q]);
-      data[o+1] = A[q+1] + t * (B[q+1] - A[q+1]);
-      data[o+2] = A[q+2] + t * (B[q+2] - A[q+2]);
-      data[o+3] = A[q+3];
+      if (hatch) {
+        // The leader keeps the cell and the runner-up is striped diagonally across it, one
+        // field cell in four. The stripe is in field space, so it holds a constant width on
+        // screen as you zoom rather than growing with the map.
+        const L = luts[((ix + iy) & 3) === 0 ? bi : ai];
+        data[o] = L[q]; data[o+1] = L[q+1]; data[o+2] = L[q+2]; data[o+3] = L[q+3];
+      } else {
+        // Two faiths. Blend mode: ramps blended by relative share, gently minority-weighted
+        // (exponent < 1) so a 10-15% minority reads as a tint. Majority mode: a flat 50/50, so
+        // the narrow contested band draws the frontier as a line. The lerp always runs in
+        // registry order, so the colour of a contested cell does not depend on which of the
+        // two happens to be ahead at that pixel.
+        const lo = ai < bi ? ai : bi, hi = ai < bi ? bi : ai;
+        const rL = Math.pow(shScr[lo], 0.75), rH = Math.pow(shScr[hi], 0.75);
+        const t = majority ? 0.5 : rH / (rL + rH);
+        const A = luts[lo], B = luts[hi];
+        data[o]   = A[q]   + t * (B[q]   - A[q]);
+        data[o+1] = A[q+1] + t * (B[q+1] - A[q+1]);
+        data[o+2] = A[q+2] + t * (B[q+2] - A[q+2]);
+        data[o+3] = A[q+3];
+      }
     } else {
       // winner-take-all below the mix threshold keeps unmixed frontiers crisp
       const L = luts[ai], q = Math.min(255, Math.round(inScr[ai] * 255)) * 4;
@@ -2500,15 +2574,24 @@ function buildLegend() {
     for (let j = i + 1; j < act.length; j++) pairs.push([act[i], act[j]]);
   mix.style.display = pairs.length ? '' : 'none';
   if (pairs.length) {
-    const q = 255 * 4;
-    const chips = pairs.map(([a, b]) => {
-      const rgb = [0, 1, 2].map(k => Math.round((a.lut[q+k] + b.lut[q+k]) / 2)).join(',');
-      return '<span class="mix-chip" title="' + a.label + ' and ' + b.label +
-             '" style="background:rgb(' + rgb + ')"></span>';
-    }).join(' ');
-    mix.innerHTML = chips + (params.frontier === 'majority'
-      ? ' contested (within ' + R_MAJ + '&times;)'
-      : ' mixed (both &ge; ' + (MIXT * 100) + '%, within ' + R_BLEND + '&times;)');
+    const q = 255 * 4, band = params.frontier === 'majority'
+      ? 'within ' + R_MAJ + '&times;'
+      : 'both &ge; ' + (MIXT * 100) + '%, within ' + R_BLEND + '&times;';
+    if (act.length > 2) {
+      // three or more faiths: contest is a stripe, not a hue
+      mix.innerHTML = '<span class="mix-chip" style="background:repeating-linear-gradient(' +
+        '45deg,' + (isDark() ? act[0].ramp[3] : act[0].ramp[8]) + ' 0 3px,' +
+        (isDark() ? act[1].ramp[3] : act[1].ramp[8]) + ' 3px 5px)"></span>' +
+        ' contested, striped with the runner-up (' + band + ')';
+    } else {
+      const chips = pairs.map(([a, b]) => {
+        const rgb = [0, 1, 2].map(k => Math.round((a.lut[q+k] + b.lut[q+k]) / 2)).join(',');
+        return '<span class="mix-chip" title="' + a.label + ' and ' + b.label +
+               '" style="background:rgb(' + rgb + ')"></span>';
+      }).join(' ');
+      mix.innerHTML = chips + (params.frontier === 'majority'
+        ? ' contested (' + band + ')' : ' mixed (' + band + ')');
+    }
   }
 }
 
