@@ -115,6 +115,7 @@
     border-radius: 7px; padding: 5px 8px; font-size: 12px;
   }
   .ctl-label { font-size: 11.5px; color: var(--muted); }
+  .chk-set { display: contents; }
   .chk { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
   .chk input { accent-color: var(--accent); }
   .legend-name { font-size: 10.5px; color: var(--ink-2); margin-bottom: 2px; }
@@ -186,20 +187,7 @@
     <canvas id="map"></canvas>
     <div class="year-overlay"><span id="yearBig">AD 33</span><small id="yearSub">Pentecost, Jerusalem</small></div>
     <div class="sim-status" id="simStatus"></div>
-    <div class="pop-hud" id="popHud">
-      <div>
-        <div class="pop-name">Est. world population</div>
-        <div class="pop-row"><div class="pop-track"><div class="pop-fill" id="popFillW"></div></div><span class="pop-num" id="popNumW">–</span></div>
-      </div>
-      <div>
-        <div class="pop-name">Christians</div>
-        <div class="pop-row"><div class="pop-track"><div class="pop-fill" id="popFillC"></div></div><span class="pop-num" id="popNumC">–</span></div>
-      </div>
-      <div>
-        <div class="pop-name">Muslims</div>
-        <div class="pop-row"><div class="pop-track"><div class="pop-fill" id="popFillM"></div></div><span class="pop-num" id="popNumM">–</span></div>
-      </div>
-    </div>
+    <div class="pop-hud" id="popHud"></div>
     <div class="tooltip" id="tooltip"></div>
     <button class="reset-view" id="resetView" hidden>Reset view</button>
     <button class="fs-btn" id="fsBtn" title="Fill the window">&#x26F6;</button>
@@ -227,8 +215,7 @@
       <option value="majority">Majority</option>
     </select>
     <span class="ctl-label heat-only">Layers</span>
-    <label class="chk heat-only"><input type="checkbox" id="layerC" checked> Christianity</label>
-    <label class="chk heat-only"><input type="checkbox" id="layerM" checked> Islam</label>
+    <span class="chk-set heat-only" id="layerToggles"></span>
   </div>
 
   <div class="narr-panel" id="narrPanel"></div>
@@ -269,23 +256,14 @@
 
   <div class="legend heat-only">
     <span class="legend-title">Est. share of local population</span>
-    <div id="legC">
-      <div class="legend-name">Christianity</div>
-      <div class="legend-bar" id="legendBar"></div>
-      <div class="legend-ticks" id="legendTicks"></div>
-    </div>
-    <div id="legM">
-      <div class="legend-name">Islam</div>
-      <div class="legend-bar" id="legendBarM"></div>
-      <div class="legend-ticks" id="legendTicksM"></div>
-    </div>
-    <span class="legend-title" id="legMix"><span class="mix-chip" style="background:#846995"></span> mixed (both &ge; 2%)</span>
+    <span class="chk-set" id="legendBlocks"></span>
+    <span class="legend-title" id="legMix"></span>
     <span class="legend-title" style="color:var(--muted)" id="legendNote">log-scaled; brightness also weights population density</span>
   </div>
 
   <details class="heat-only">
-    <summary>Data tables: estimated Christian and Muslim share by region</summary>
-    <div class="inner"><table id="dataTable"></table><table id="dataTableM" style="margin-top:14px"></table></div>
+    <summary id="tablesSummary">Data tables by region</summary>
+    <div class="inner" id="dataTables"></div>
   </details>
   <details class="heat-only">
     <summary>About this model</summary>
@@ -832,8 +810,10 @@ const RAMP = ['#cde2fb','#b7d3f6','#9ec5f4','#86b6ef','#6da7ec','#5598e7','#3987
 const RAMP_RED = ['#fcdcd6','#f8c8c0','#f4b4aa','#efa095','#e98c80','#e2776b','#d96256','#cf4c45','#bc3e3b','#a53431','#8b2b29','#712222','#591b1b'];
 const DATASETS = [
   { id: 'chr', kind: 'faith', label: 'Christianity', key: 's',  ramp: RAMP,     on: true,
+    adj: 'Christian', people: 'Christians', hue: 'blue',
     seedYear: 33,  seeds: [[cellOf(35.2, 31.8), .005]] },
   { id: 'isl', kind: 'faith', label: 'Islam',        key: 'si', ramp: RAMP_RED, on: true,
+    adj: 'Muslim', people: 'Muslims', hue: 'red',
     seedYear: 622, seeds: [[cellOf(39.8, 21.4), .02], [cellOf(39.6, 24.5), .02]] },
 ];
 const DS = id => DATASETS.find(d => d.id === id);
@@ -849,6 +829,10 @@ for (const ds of DATASETS) {
     ds.token = 0; ds.ready = false;
   }
 }
+
+// "a and b" / "a, b and c" — used by every generated label that enumerates datasets.
+const listOf = xs => xs.length < 2 ? (xs[0] || '')
+  : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1];
 
 const routeCells = ROUTES.map(r => [cellOf(r[0], r[1]), cellOf(r[2], r[3]), r[4], r[5]]);
 
@@ -1159,7 +1143,9 @@ function updateHUD() {
   // population tally: same visible-viewport pinning, vertically centered on what you can see
   const pop = document.getElementById('popHud');
   if (pop) {
-    const cy = Math.min(Math.max(wrap.top + 60 * sc, vt + vh / 2), wrap.bottom - 60 * sc);
+    // measured, not assumed: the row count follows the number of visible datasets
+    const half = (pop.offsetHeight || 78) / 2 * sc;
+    const cy = Math.min(Math.max(wrap.top + half, vt + vh / 2), wrap.bottom - half);
     pop.style.left = (x - wrap.left) + 'px';
     pop.style.top = (cy - wrap.top) + 'px';
     pop.style.transform = `scale(${sc}) translateY(-50%)`;
@@ -1844,8 +1830,8 @@ const OT_EVENTS = [
 const MODES = {
   main: {
     label: 'World demographics',
-    title: 'Christian and Muslim Share of Population, AD 33 to 2026',
-    sub: 'Estimated share of local population through two millennia: Christianity in blue, Islam in red, genuine co-presence in purple. Historical anchor data blended with a live diffusion model; drag the sliders to play.',
+    title: () => datasetTitle(),          // generated from whichever datasets are visible
+    sub: () => datasetSub(),
     y0: 33, y1: 2026, tlExp: 0.55, speed: 25,
     ticks: EVENTS, marks: [33, 500, 1000, 1500, 2026],
     layers: { heat: true, cities: true }, hud: { pop: true }
@@ -1942,11 +1928,17 @@ let speed = MODES.main.speed;
     params.mode = 'percap';
     document.getElementById('modeSel').value = 'percap';
   }
-  const lq = q.get('layers'); // e.g. ?layers=c, ?layers=m, ?layers=cm
+  // ?layers=chr,isl,bud — a comma list of dataset ids. The old single-letter form
+  // (?layers=c, ?layers=cm) is still honoured, because it is the syntax the README documents
+  // and links in the wild use it. Membership must not be a substring test: 'chr' contains
+  // both 'c' and 'h'.
+  const lq = q.get('layers');
   if (lq) {
-    DS('chr').on = lq.includes('c'); DS('isl').on = lq.includes('m');
-    document.getElementById('layerC').checked = DS('chr').on;
-    document.getElementById('layerM').checked = DS('isl').on;
+    const LEGACY = { c: 'chr', m: 'isl' };
+    const want = lq.includes(',') ? lq.split(',').map(x => x.trim()).filter(Boolean)
+      : [...lq].every(ch => LEGACY[ch]) ? [...lq].map(ch => LEGACY[ch])
+      : [lq];
+    for (const ds of DATASETS) ds.on = want.includes(ds.id);
   }
   if (q.get('frontier') === 'majority') {
     params.frontier = 'majority';
@@ -1982,17 +1974,19 @@ function eraLabel(y) {
   return best[1] + ', ' + fmtYear(best[0]);
 }
 /* ============ running population tally (issue #11) ============ */
-// Sums of the anchor data: world = sum p, Christian = sum p*s, Muslim = sum p*si (millions).
+// Sums of the anchor data: world = sum p, and per dataset sum p*share (millions).
 // City overlays contribute their own p, a small known double count against the base regions,
 // consistent with how the heat layer treats them.
 function worldTotals(y) {
-  let w = 0, c = 0, m = 0;
+  const t = { w: 0 };
+  for (const ds of DATASETS) t[ds.id] = 0;
   for (const reg of REGIONS) {
     const p = interp(reg.p, y);
     if (p <= 0) continue;
-    w += p; c += p * interp(reg.s, y); m += p * interp(reg.si, y);
+    t.w += p;
+    for (const ds of DATASETS) t[ds.id] += p * interp(reg[ds.key], y);
   }
-  return { w, c, m };
+  return t;
 }
 const POP_MAX = worldTotals(SIM_Y1).w;
 // sqrt scale: on a linear scale the first millennium (~250M against 8B) is an invisible sliver
@@ -2002,26 +1996,37 @@ function fmtPop(mil) {
   if (mil >= 1) return Math.round(mil) + 'M';
   return Math.round(mil * 1000) + 'k';
 }
-const popEls = {
-  w: [document.getElementById('popFillW'), document.getElementById('popNumW')],
-  c: [document.getElementById('popFillC'), document.getElementById('popNumC')],
-  m: [document.getElementById('popFillM'), document.getElementById('popNumM')]
-};
+// The tally is generated: a world row, then one row per visible dataset. Row count is no
+// longer a constant, which is why updateHUD measures the panel rather than assuming three.
+let popEls = {};
+function buildPopHud() {
+  const hud = document.getElementById('popHud');
+  const rows = [{ id: 'w', name: 'Est. world population' }]
+    .concat(DATASETS.filter(d => d.on).map(d => ({ id: d.id, name: d.people })));
+  hud.innerHTML = rows.map(r =>
+    '<div><div class="pop-name">' + r.name + '</div>' +
+    '<div class="pop-row"><div class="pop-track"><div class="pop-fill" data-pop="' + r.id + '"></div></div>' +
+    '<span class="pop-num" data-popnum="' + r.id + '">–</span></div></div>').join('');
+  popEls = {};
+  for (const r of rows)
+    popEls[r.id] = [hud.querySelector('[data-pop="' + r.id + '"]'), hud.querySelector('[data-popnum="' + r.id + '"]')];
+  stylePopBars();
+}
 function updatePopHud(y) {
   const t = worldTotals(y);
   const shareOf = v => t.w > 0 ? ' (' + (v / t.w * 100).toFixed(v / t.w < 0.01 ? 1 : 0) + '%)' : '';
-  popEls.w[0].style.width = (popScale(t.w) * 100) + '%';
-  popEls.w[1].textContent = fmtPop(t.w);
-  popEls.c[0].style.width = (popScale(t.c) * 100) + '%';
-  popEls.c[1].textContent = fmtPop(t.c) + shareOf(t.c);
-  popEls.m[0].style.width = (popScale(t.m) * 100) + '%';
-  popEls.m[1].textContent = fmtPop(t.m) + shareOf(t.m);
+  for (const id in popEls) {
+    const v = t[id];
+    if (v === undefined) continue;
+    popEls[id][0].style.width = (popScale(v) * 100) + '%';
+    popEls[id][1].textContent = fmtPop(v) + (id === 'w' ? '' : shareOf(v));
+  }
 }
 function stylePopBars() {
   // track the heat ramps: mid-ramp stops read well against both themes
-  popEls.w[0].style.background = cssVar('--muted');
-  popEls.c[0].style.background = isDark() ? RAMP[3] : RAMP[8];
-  popEls.m[0].style.background = isDark() ? RAMP_RED[3] : RAMP_RED[8];
+  if (popEls.w) popEls.w[0].style.background = cssVar('--muted');
+  for (const ds of DATASETS)
+    if (popEls[ds.id]) popEls[ds.id][0].style.background = isDark() ? ds.ramp[3] : ds.ramp[8];
 }
 
 function updateChrome() {
@@ -2039,15 +2044,44 @@ playBtn.addEventListener('click', () => {
   playing = !playing; needsRedraw = true;
 });
 document.getElementById('speedSel').addEventListener('change', e => speed = +e.target.value);
-const setLayer = (id, on) => {
+// The page title and standfirst name whichever datasets are visible, so they cannot go stale
+// when a layer is toggled or a population type is added.
+function datasetTitle() {
+  const act = DATASETS.filter(d => d.on);
+  return act.length
+    ? listOf(act.map(d => d.adj)) + ' Share of Population, AD 33 to 2026'
+    : 'Population Share, AD 33 to 2026';
+}
+function datasetSub() {
+  const act = DATASETS.filter(d => d.on);
+  if (!act.length) return 'No layers visible. Turn one on to see the map.';
+  return 'Estimated share of local population through two millennia: ' +
+    listOf(act.map(d => d.label + ' in ' + d.hue)) +
+    (act.length > 1 ? ', contested ground blended between them' : '') +
+    '. Historical anchor data blended with a live diffusion model; drag the sliders to play.';
+}
+function updateTitles() {
+  if (modeId !== 'main') return;
+  document.getElementById('pageTitle').textContent = datasetTitle();
+  document.getElementById('pageSub').textContent = datasetSub();
+}
+
+function setLayer(id, on) {
   const ds = DS(id);
   ds.on = on;
   if (on && ds.kind === 'faith' && !ds.ready) enqueueSim(ds);   // simulate on first reveal
-  buildLegend();
+  buildLegend(); buildPopHud(); buildTables(); updateTitles();
   needsRedraw = true;
-};
-document.getElementById('layerC').addEventListener('change', e => setLayer('chr', e.target.checked));
-document.getElementById('layerM').addEventListener('change', e => setLayer('isl', e.target.checked));
+}
+// Checkboxes are generated from the registry, after the deep-link block has set visibility.
+function buildLayerToggles() {
+  const host = document.getElementById('layerToggles');
+  host.innerHTML = DATASETS.map(ds =>
+    '<label class="chk"><input type="checkbox" data-layer="' + ds.id + '"' +
+    (ds.on ? ' checked' : '') + '> ' + ds.label + '</label>').join('');
+  host.querySelectorAll('[data-layer]').forEach(cb =>
+    cb.addEventListener('change', () => setLayer(cb.dataset.layer, cb.checked)));
+}
 document.getElementById('frontierSel').addEventListener('change', e => {
   params.frontier = e.target.value;
   buildLegend();
@@ -2065,8 +2099,9 @@ document.getElementById('modeSel').addEventListener('change', e => {
 const speedSel = document.getElementById('speedSel');
 function applyModeChrome() {
   const m = M();
-  document.getElementById('pageTitle').textContent = m.title;
-  document.getElementById('pageSub').textContent = m.sub;
+  const txt = v => typeof v === 'function' ? v() : v;
+  document.getElementById('pageTitle').textContent = txt(m.title);
+  document.getElementById('pageSub').textContent = txt(m.sub);
   // panels that only mean something for the demographic visualization
   document.querySelectorAll('.heat-only').forEach(el => {
     el.style.display = m.layers.heat ? '' : 'none';
@@ -2257,9 +2292,13 @@ canvas.addEventListener('mousemove', e => {
   });
   if (best === null) { tooltip.style.display = 'none'; return; }
   const reg = REGIONS[best];
-  const shC = interp(reg.s, year), shM = interp(reg.si, year), pop = interp(reg.p, year);
+  const pop = interp(reg.p, year);
   const pct = v => v < 0.01 ? (v*100).toFixed(2) : (v*100).toFixed(0);
-  tooltip.innerHTML = `<b>${reg.n}</b><div class="tt-sub">est. ${pct(shC)}% Christian &middot; ${pct(shM)}% Muslim &middot; ~${pop < 1 ? (pop*1000).toFixed(0) + 'k' : Math.round(pop) + 'M'} people &middot; ${year < 1000 ? 'AD ' + Math.round(year) : Math.round(year)}</div>`;
+  const parts = DATASETS.filter(d => d.on)
+    .map(d => pct(interp(reg[d.key], year)) + '% ' + d.adj);
+  parts.push('~' + (pop < 1 ? (pop*1000).toFixed(0) + 'k' : Math.round(pop) + 'M') + ' people');
+  parts.push(year < 1000 ? 'AD ' + Math.round(year) : String(Math.round(year)));
+  tooltip.innerHTML = `<b>${reg.n}</b><div class="tt-sub">est. ${parts.join(' &middot; ')}</div>`;
   tooltip.style.display = 'block';
   const wr = canvas.parentElement.getBoundingClientRect();
   tooltip.style.left = Math.min(wr.width - 240, e.clientX - wr.left + 14) + 'px';
@@ -2273,44 +2312,63 @@ function buildLegend() {
     const stops = isDark() ? ramp.slice().reverse() : ramp;
     return `linear-gradient(to right, ${stops.map((c, i) => c + ' ' + (i / (stops.length - 1) * 100) + '%').join(',')})`;
   };
-  document.getElementById('legendBar').style.background = grad(RAMP);
-  document.getElementById('legendBarM').style.background = grad(RAMP_RED);
-  for (const id of ['legendTicks', 'legendTicksM']) {
-    const ticks = document.getElementById(id);
-    ticks.innerHTML = '';
+  const act = activeFaiths();
+  const blocks = document.getElementById('legendBlocks');
+  blocks.innerHTML = act.map(ds =>
+    '<div><div class="legend-name">' + ds.label + '</div>' +
+    '<div class="legend-bar" style="background:' + grad(ds.ramp) + '"></div>' +
+    '<div class="legend-ticks" data-ticks="' + ds.id + '"></div></div>').join('');
+  for (const ds of act) {
+    const ticks = blocks.querySelector('[data-ticks="' + ds.id + '"]');
     for (const [share, label] of [[0.01,'1%'],[0.1,'10%'],[0.5,'50%'],[0.9,'90%']]) {
-      const s = document.createElement('span');
-      s.style.left = (logT(share) * 100) + '%';
-      s.textContent = label;
-      ticks.appendChild(s);
+      const sp = document.createElement('span');
+      sp.style.left = (logT(share) * 100) + '%';
+      sp.textContent = label;
+      ticks.appendChild(sp);
     }
   }
-  document.getElementById('legC').style.display = DS('chr').on ? '' : 'none';
-  document.getElementById('legM').style.display = DS('isl').on ? '' : 'none';
+  // One chip per visible pair, coloured by sampling the two ramps at full strength and
+  // averaging: that is literally what the renderer paints at parity, rather than a
+  // hardcoded purple that would be a lie for any pair but blue and red. The ratios come
+  // from R_MAJ/R_BLEND rather than being retyped as prose.
   const mix = document.getElementById('legMix');
-  mix.style.display = (DS('chr').on && DS('isl').on) ? '' : 'none';
-  mix.innerHTML = params.frontier === 'majority'
-    ? '<span class="mix-chip" style="background:#846995"></span> contested (within 1.5&times;)'
-    : '<span class="mix-chip" style="background:#846995"></span> mixed (both &ge; 2%, within 4.5&times;)';
+  const pairs = [];
+  for (let i = 0; i < act.length; i++)
+    for (let j = i + 1; j < act.length; j++) pairs.push([act[i], act[j]]);
+  mix.style.display = pairs.length ? '' : 'none';
+  if (pairs.length) {
+    const q = 255 * 4;
+    const chips = pairs.map(([a, b]) => {
+      const rgb = [0, 1, 2].map(k => Math.round((a.lut[q+k] + b.lut[q+k]) / 2)).join(',');
+      return '<span class="mix-chip" title="' + a.label + ' and ' + b.label +
+             '" style="background:rgb(' + rgb + ')"></span>';
+    }).join(' ');
+    mix.innerHTML = chips + (params.frontier === 'majority'
+      ? ' contested (within ' + R_MAJ + '&times;)'
+      : ' mixed (both &ge; ' + (MIXT * 100) + '%, within ' + R_BLEND + '&times;)');
+  }
 }
 
-// data tables (one per faith)
-(function buildTables(){
+// data tables, one per visible dataset
+function buildTables() {
   const cols = [100, 300, 600, 1000, 1400, 1700, 1900, 2026];
-  const fill = (tblId, key, title) => {
-    const tbl = document.getElementById(tblId);
-    let html = `<tr><th>${title}</th>` + cols.map(c => `<th>${c < 1000 ? 'AD ' + c : c}</th>`).join('') + '</tr>';
+  const act = DATASETS.filter(d => d.on);
+  document.getElementById('tablesSummary').textContent = act.length
+    ? 'Data tables: estimated ' + listOf(act.map(d => d.adj)) + ' share by region'
+    : 'Data tables by region';
+  document.getElementById('dataTables').innerHTML = act.map((ds, n) => {
+    let html = '<table' + (n ? ' style="margin-top:14px"' : '') +
+      '><tr><th>' + ds.adj + ' share</th>' +
+      cols.map(c => '<th>' + (c < 1000 ? 'AD ' + c : c) + '</th>').join('') + '</tr>';
     for (const reg of REGIONS) {
-      html += `<tr><td>${reg.n}</td>` + cols.map(c => {
-        const v = interp(reg[key], c) * 100;
-        return `<td>${v === 0 ? '–' : v < 1 ? v.toFixed(2) : v.toFixed(0)}%</td>`;
+      html += '<tr><td>' + reg.n + '</td>' + cols.map(c => {
+        const v = interp(reg[ds.key], c) * 100;
+        return '<td>' + (v === 0 ? '–' : v < 1 ? v.toFixed(2) : v.toFixed(0)) + '%</td>';
       }).join('') + '</tr>';
     }
-    tbl.innerHTML = html;
-  };
-  fill('dataTable', 's', 'Christian share');
-  fill('dataTableM', 'si', 'Muslim share');
-})();
+    return html + '</table>';
+  }).join('');
+}
 
 /* ============ main loop ============ */
 function frame(t) {
@@ -2330,8 +2388,10 @@ function frame(t) {
 }
 
 buildLUT();
+buildLayerToggles();   // after the deep-link block, which sets ds.on
+buildPopHud();
 buildLegend();
-stylePopBars();
+buildTables();
 applyModeChrome();
 buildTimeline();
 buildNarrativePanel();
