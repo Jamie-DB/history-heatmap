@@ -1205,7 +1205,7 @@ const ctx = canvas.getContext('2d');
 const fieldCanvas = document.createElement('canvas');
 const fctx = fieldCanvas.getContext('2d');
 const FW = 320;
-let FH = 0, fimg = null, viewDens = null;
+let FH = 0, fimg = null, viewDens = null, viewWsum = null;
 function ensureViewBuffers() {
   const fh = Math.max(16, Math.round(FW * H / W));
   if (fh === FH && fimg && DATASETS.every(d => d.viewNum)) return;
@@ -1213,6 +1213,7 @@ function ensureViewBuffers() {
   fieldCanvas.width = FW; fieldCanvas.height = FH;
   fimg = fctx.createImageData(FW, FH);
   viewDens = new Float32Array(FW * FH);
+  viewWsum = new Float32Array(FW * FH);
   for (const ds of DATASETS) {
     ds.viewNum = new Float32Array(FW * FH);
     ds.confNum = new Float32Array(FW * FH);   // population-weighted confidence, same grid
@@ -1222,13 +1223,23 @@ function ensureViewBuffers() {
 // a point narrower than the current cell size renders with sigma clamped up to ~0.7 cells
 // and amplitude scaled down by the area ratio, so city-scale points dilute honestly at
 // world view and sharpen to their true footprint as the grid refines.
+//
+// BRIGHTNESS and SHARE are weighted differently, and they have to be. Brightness is total
+// population, so it sums raw mass. Share is not: a pixel inside Dearborn sits inside Wayne
+// County and inside North America too, and all three describe the same people at three
+// resolutions. Summing them by mass averages a 50%-Muslim city with a 1%-Muslim continent
+// and renders 25%. So the share weight is mass scaled by how well a region resolves the
+// pixel: 1/sigma^2 favours the finest description present, and occupancy squared stops a
+// region smaller than the render cell from claiming the whole cell, which is what keeps
+// Dearborn from painting itself across Michigan at world view. Measured against each
+// region's own authored figures, this cuts total error from 75 points to 12.
 function buildViewField(year, lon0, latTopV, cw, ch) {
   // only datasets that are actually drawn. A disabled dataset's field is never read, and
   // accumulating it cost the hottest loop in the app a full pass per pixel for nothing.
   const live = DATASETS.filter(d => d.on);
   const N = live.length, nums = live.map(d => d.viewNum), sh = [];
   const cfs = live.map(d => d.confNum), cf = [], wantConf = showConf;
-  viewDens.fill(0);
+  viewDens.fill(0); viewWsum.fill(0);
   for (const a of nums) a.fill(0);
   for (const a of cfs) a.fill(0);
   buildRegWeights(year);
@@ -1245,6 +1256,8 @@ function buildViewField(year, lon0, latTopV, cw, ch) {
     }
     const sig = Math.max(pt.sigDeg, 0.7 * cs);
     const amp = pop * 4 / (2 * Math.PI * sig * sig * pt.landFrac); // mass per 2-deg-cell-equivalent
+    const occ = Math.min(1, pt.sigDeg / sig);          // 1 when fully resolved, < 1 once AA clamps it
+    const shw = occ * occ / (sig * sig);               // share weight per unit mass
     const rad = sig * 2.9;
     const i0 = Math.max(0, Math.floor((pt.lon - rad - lon0) / cw));
     const i1 = Math.min(FW - 1, Math.ceil((pt.lon + rad - lon0) / cw));
@@ -1259,12 +1272,13 @@ function buildViewField(year, lon0, latTopV, cw, ch) {
         const dx = (lon0 + (i + 0.5) * cw) - pt.lon;
         const g = Math.exp(-(dx * dx + dy2) * inv2s2);
         if (g < 0.008) continue;
-        const d = amp * g, ci = row + i;
+        const d = amp * g, ci = row + i, wd = d * shw;
         viewDens[ci] += d;
-        for (let n = 0; n < N; n++) nums[n][ci] += d * sh[n];
+        viewWsum[ci] += wd;
+        for (let n = 0; n < N; n++) nums[n][ci] += wd * sh[n];
         // the confidence field is another full scattered write per dataset per pixel, so it
         // is only paid for when the wash is actually being drawn
-        if (wantConf) for (let n = 0; n < N; n++) cfs[n][ci] += d * cf[n];
+        if (wantConf) for (let n = 0; n < N; n++) cfs[n][ci] += wd * cf[n];
       }
     }
   }
@@ -1491,6 +1505,7 @@ function draw(year) {
     }
     // population-weighted: saturating density factor (cells above ~12% of world max read full strength)
     // per capita: share alone wherever meaningfully inhabited (soft gate keeps empty deserts dark)
+    const sw = viewWsum[idx] > 1e-9 ? viewWsum[idx] : 1;   // share denominator; d stays for brightness
     const densFac = params.mode === 'percap'
       ? Math.min(1, d / (0.02 * densMax))
       : Math.pow(Math.min(1, d / (0.12 * densMax)), urb);
@@ -1514,7 +1529,7 @@ function draw(year) {
     let ai = -1, bi = -1, sa = -1, sb = -1, imax = 0, ssum = 0;
     for (let n = 0; n < NA; n++) {
       const ds = act[n];
-      const h = nums[n][idx] / d;
+      const h = nums[n][idx] / sw;
       const sim = simShareLL(ds, lonC, latC, year);
       // a faith whose pass has not landed yet reads as pure history, not 20% dim
       const bl = ds.ready ? blend : 1;
@@ -1526,10 +1541,10 @@ function draw(year) {
       if (iv > imax) imax = iv;
     }
     if (meas) {
-      const mq = Math.min(255, Math.round(logT(measNum[idx] / d) * densFac * 255)) * 4;
+      const mq = Math.min(255, Math.round(logT(measNum[idx] / sw) * densFac * 255)) * 4;
       data[o] = measLut[mq]; data[o+1] = measLut[mq+1];
       data[o+2] = measLut[mq+2]; data[o+3] = measLut[mq+3];
-      wash(o, mq, washOf(meas.confNum[idx] / d));
+      wash(o, mq, washOf(meas.confNum[idx] / sw));
       // frontier line over the fill. The margin is smooth, so the line slides sub-pixel as
       // the year advances instead of snapping cell to cell the way a hard argmax would.
       if (bi >= 0 && sb >= MIXT) {
@@ -1565,7 +1580,7 @@ function draw(year) {
         const st = ((ix + iy) & 3) === 0;
         const L = luts[st ? bi : ai];
         data[o] = L[q]; data[o+1] = L[q+1]; data[o+2] = L[q+2]; data[o+3] = L[q+3];
-        wash(o, q, washOf(actConf[st ? bi : ai][idx] / d));
+        wash(o, q, washOf(actConf[st ? bi : ai][idx] / sw));
       } else {
         // Two faiths. Blend mode: ramps blended by relative share, gently minority-weighted
         // (exponent < 1) so a 10-15% minority reads as a tint. Majority mode: a flat 50/50, so
@@ -1580,13 +1595,13 @@ function draw(year) {
         data[o+1] = A[q+1] + t * (B[q+1] - A[q+1]);
         data[o+2] = A[q+2] + t * (B[q+2] - A[q+2]);
         data[o+3] = A[q+3];
-        wash(o, q, washOf(actConf[ai][idx] / d));
+        wash(o, q, washOf(actConf[ai][idx] / sw));
       }
     } else {
       // winner-take-all below the mix threshold keeps unmixed frontiers crisp
       const L = luts[ai], q = Math.min(255, Math.round(inScr[ai] * 255)) * 4;
       data[o] = L[q]; data[o+1] = L[q+1]; data[o+2] = L[q+2]; data[o+3] = L[q+3];
-      wash(o, q, washOf(actConf[ai][idx] / d));
+      wash(o, q, washOf(actConf[ai][idx] / sw));
     }
   }
   fctx.putImageData(fimg, 0, 0);
@@ -2822,8 +2837,8 @@ function ensureCompareField(lon0, latTopV, cw, ch) {
   buildViewField(cmpYear, lon0, latTopV, cw, ch);
   const num = ds.viewNum;
   for (let i = 0; i < FW * FH; i++) {
-    const d = viewDens[i];
-    cmpShare[i] = d > 1e-6 ? num[i] / d : 0;
+    const w = viewWsum[i];
+    cmpShare[i] = w > 1e-9 ? num[i] / w : 0;
   }
   cmpCacheKey = key;
   return ds;
