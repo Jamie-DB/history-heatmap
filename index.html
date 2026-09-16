@@ -1290,6 +1290,7 @@ const fieldCanvas = document.createElement('canvas');
 const fctx = fieldCanvas.getContext('2d');
 const FW = 320;
 let FH = 0, fimg = null, viewDens = null, viewWsum = null, cellIdx = null;
+let frontM = null, frontDom = null;
 function ensureViewBuffers() {
   const fh = Math.max(16, Math.round(FW * H / W));
   if (fh === FH && fimg && DATASETS.every(d => d.viewNum)) return;
@@ -1298,6 +1299,8 @@ function ensureViewBuffers() {
   fimg = fctx.createImageData(FW, FH);
   viewDens = new Float32Array(FW * FH);
   viewWsum = new Float32Array(FW * FH);
+  frontM = new Float32Array(FW * FH);      // faith margin, for the frontier line
+  frontDom = new Uint8Array(FW * FH);
   for (const ds of DATASETS) {
     ds.viewNum = new Float32Array(FW * FH);
     ds.confNum = new Float32Array(FW * FH);   // population-weighted confidence, same grid
@@ -1403,7 +1406,13 @@ function fillLUT(lut, ramp) {
   }
 }
 function buildLUT() {
-  for (const ds of DATASETS) fillLUT(ds.lut, ds.ramp);
+  for (const ds of DATASETS) {
+    fillLUT(ds.lut, ds.ramp);
+    // Frontier lines draw in the same mid-ramp stop the legend chip and the population bar
+    // use. The end of the ramp is not it: fillLUT reverses for dark theme, so index 255 there
+    // is the pale end, and a "strongest colour" line came out near-white.
+    ds.lineRGB = hex2rgb(isDark() ? ds.ramp[3] : ds.ramp[9]);
+  }
   fillLUT(LUT_NONE, RAMP_NONE);
   // The diverging LUT needs a V-shaped alpha: fillLUT's monotone alpha would put zero
   // opacity at maximum loss and erase that whole arm of the scale.
@@ -1584,6 +1593,12 @@ function draw(year) {
   const cmpNum = cmpDs ? cmpDs.viewNum : null;
   const data = fimg.data;
   const meas = DATASETS.find(d => d.kind === 'measure' && d.on) || null;
+  // 9 means "no contest here". It has to be written every frame, not left from the last one:
+  // pixels that take the empty-cell early-out below never reach the margin code, and a fresh
+  // Float32Array is all zeros — which reads as perfect parity, so every uninhabited pixel
+  // drew itself a textbook frontier. It put a solid blue line along the Arctic coast of
+  // Siberia, across tundra with no population at all.
+  if (meas && frontM) frontM.fill(9);
   const measNum = meas ? meas.viewNum : null, measLut = meas ? meas.lut : null;
   const MT_LINE = majority ? 0.04 : 0.09;
   // Confidence washes the fill toward the neutral: a conjecture reads as barely committed,
@@ -1646,22 +1661,13 @@ function draw(year) {
       data[o] = measLut[mq]; data[o+1] = measLut[mq+1];
       data[o+2] = measLut[mq+2]; data[o+3] = measLut[mq+3];
       wash(o, mq, washOf(meas.confNum[idx] / sw));
-      // frontier line over the fill. The margin is smooth, so the line slides sub-pixel as
-      // the year advances instead of snapping cell to cell the way a hard argmax would.
-      if (bi >= 0 && sb >= MIXT) {
-        const m = (sa - sb) / (sa + sb);
-        if (m < MT_LINE) {
-          const F = luts[ai], fq = 255 * 4;
-          const la = (1 - m / MT_LINE) * 0.92, base = data[o+3] / 255;
-          const outA = la + base * (1 - la);
-          // non-premultiplied source-over: a naive lerp washes the line out wherever the
-          // measure fill underneath it is transparent
-          data[o]   = (F[fq]   * la + data[o]   * base * (1 - la)) / outA;
-          data[o+1] = (F[fq+1] * la + data[o+1] * base * (1 - la)) / outA;
-          data[o+2] = (F[fq+2] * la + data[o+2] * base * (1 - la)) / outA;
-          data[o+3] = outA * 255;
-        }
-      }
+      // Record the margin; the line itself is drawn in a second pass below. Thresholding the
+      // margin directly does not give a line, it gives a region: across the Sahel the two
+      // faiths sit near parity for thousands of kilometres, so any fixed cutoff paints the
+      // whole band. sb >= MIXT is mandatory, not tidiness — the margin is a ratio and is
+      // meaningless where both shares approach zero, which is most of the map.
+      frontM[idx] = (bi >= 0 && sb >= MIXT) ? (sa - sb) / (sa + sb) : 9;
+      frontDom[idx] = ai;
       continue;
     }
     const oth = 1 - ssum;
@@ -1703,6 +1709,37 @@ function draw(year) {
       const L = luts[ai], q = Math.min(255, Math.round(inScr[ai] * 255)) * 4;
       data[o] = L[q]; data[o+1] = L[q+1]; data[o+2] = L[q+2]; data[o+3] = L[q+3];
       wash(o, q, washOf(actConf[ai][idx] / sw));
+    }
+  }
+  // Frontier lines, second pass. Dividing the margin by its own local gradient converts it
+  // into an approximate distance to the parity contour, in field pixels, so the line comes
+  // out the same width wherever the margin happens to change fast or slow. A pure threshold
+  // on the margin cannot do that, and produced a band across half of Africa.
+  if (meas && NA > 1) {
+    const HALFW = MT_LINE > 0.06 ? 1.15 : 0.75;     // Frontier control picks border or hairline
+    for (let j = 1; j < FH - 1; j++) {
+      for (let i = 1; i < FW - 1; i++) {
+        const idx = j * FW + i;
+        const m = frontM[idx];
+        if (m > 1) continue;                         // no contest here
+        const gx = (frontM[idx+1]  > 1 || frontM[idx-1]  > 1) ? 0 : (frontM[idx+1]  - frontM[idx-1])  * 0.5;
+        const gy = (frontM[idx+FW] > 1 || frontM[idx-FW] > 1) ? 0 : (frontM[idx+FW] - frontM[idx-FW]) * 0.5;
+        const gm = Math.sqrt(gx * gx + gy * gy);
+        // The margin has to be genuinely changing across this pixel for a contour to run
+        // through it. A near-zero margin over a flat area is a parity ZONE, not a frontier,
+        // and dividing one small number by another admitted it as a solid bar.
+        if (gm < 4e-3) continue;
+        const a = (1 - (m / gm) / HALFW) * 0.85;
+        if (a <= 0.01) continue;
+        const L = act[frontDom[idx]].lineRGB, o = idx * 4, base = data[o+3] / 255;
+        const outA = a + base * (1 - a);
+        // non-premultiplied source-over: a plain lerp washes the line out wherever the
+        // measure fill beneath it is transparent
+        data[o]   = (L[0] * a + data[o]   * base * (1 - a)) / outA;
+        data[o+1] = (L[1] * a + data[o+1] * base * (1 - a)) / outA;
+        data[o+2] = (L[2] * a + data[o+2] * base * (1 - a)) / outA;
+        data[o+3] = outA * 255;
+      }
     }
   }
   fctx.putImageData(fimg, 0, 0);
