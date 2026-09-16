@@ -350,9 +350,23 @@ const REGIONS = [
 {n:"Britain & Ireland", pts:[[-0.1,51.5,1,0,1.6],[-1.9,52.5,0.6,0,1.6],[-2.2,53.5,0.6,0,1.6],[-1.5,53.8,0.5,0,1.6],[-4.3,55.9,0.5,0,1.6],[-6.3,53.3,0.5,0,1.6],[-3,53.4,0.4,0,1.6],[-3.2,55.9,0.3,0,1.6],[-2.6,51.5,0.3,0,1.6],[-3.2,51.5,0.3,0,1.6],[-5.9,54.6,0.3,0,1.6],[-1.6,55,0.3,0,1.6]],
  s:[0,.0005,.005,.03,.12,.45,.85,.95,.97,.97,.97,.97,.95,.92,.9,.88,.75,.6,.45],
  p:[1,1,1,1,1,1,1,2,3,4,4,6,9,16,27,41,50,63,72]},
-{n:"Central Europe", pts:[[13.4,52.5,0.9,0,1.6],[6.9,50.9,0.8,0,1.6],[11.6,48.1,0.7,0,1.6],[10,53.6,0.6,0,1.6],[8.7,50.1,0.6,0,1.6],[16.4,48.2,0.6,0,1.6],[14.4,50.1,0.6,0,1.6],[19,47.5,0.6,0,1.6],[9.2,48.8,0.5,0,1.6],[8.5,47.4,0.4,0,1.6],[12.4,51.3,0.4,0,1.6],[17.1,48.1,0.3,0,1.6]],
+{n:"Central Europe", pts:[[13.4,52.5,0.9,0,1.6],[6.9,50.9,0.8,0,1.2],[11.6,48.1,0.7,0,1.6],[10,53.6,0.6,0,1.6],[8.7,50.1,0.6,0,1.6],[16.4,48.2,0.6,0,1.6],[14.4,50.1,0.6,0,1.6],[19,47.5,0.6,0,1.6],[9.2,48.8,0.5,0,1.6],[8.5,47.4,0.4,0,1.6],[12.4,51.3,0.4,0,1.6],[17.1,48.1,0.3,0,1.6]],
  s:[0,0,.002,.01,.06,.2,.55,.85,.95,.97,.97,.95,.95,.95,.93,.92,.85,.7,.55],
  p:[3,3,4,4,4,3,4,6,9,10,12,14,17,25,35,50,70,82,83]},
+// The Low Countries were never inside Central Europe: its population array is Germany alone
+// at every anchor, so this fills a gap rather than rebalancing one. Two regions and not one,
+// because the divergence runs BETWEEN them. Belgium leads on urbanisation from 1400 to 1550
+// and the Netherlands from 1600, and that rank swap is the most legible fact in the series;
+// a combined region renders a smooth hump and erases it. Belgium held 60% of the region's
+// people in 1500 and holds 41% now, which static point weights cannot follow either.
+{n:"Netherlands", pts:[[4.9,52.37,1,0,1.2],[4.48,51.92,.8,0,1.2],[5.12,52.09,.4,0,1.2],[6.57,53.22,.35,0,1.2],[5.48,51.44,.3,0,1.2]],
+ s:[0,0,.001,.005,.03,.1,.7,.92,.96,.97,.97,.98,.97,.97,.96,.95,.83,.55,.35],
+ si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.002,.05,.07],
+ p:[.2,.2,.2,.2,.2,.18,.22,.28,.55,.65,.95,1.5,1.9,2.1,3,5.1,10,16,18]},
+{n:"Belgium & Luxembourg", pts:[[4.4,51.22,1,0,1.2],[3.72,51.05,.7,0,1.2],[4.35,50.85,.9,0,1.2],[5.57,50.63,.5,0,1.2],[6.13,49.61,.12,0,1.2]],
+ s:[0,0,.003,.02,.08,.35,.88,.97,.98,.98,.98,.98,.99,.98,.98,.98,.95,.7,.46],
+ si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.002,.04,.08],
+ p:[.35,.4,.4,.32,.3,.27,.3,.4,.95,.85,1.45,1.65,2.05,3.1,4.6,6.9,8.9,10.7,12.5]},
 {n:"Scandinavia", pts:[[18.1,59.3,0.8,0,1.6],[12.6,55.7,0.7,0,1.6],[10.7,59.9,0.6,0,1.6],[24.9,60.2,0.6,0,1.6],[12,57.7,0.4,0,1.6],[5.3,60.4,0.3,0,1.6],[13,55.6,0.3,0,1.6],[10.2,56.2,0.3,0,1.6],[10.4,63.4,0.2,0,1.6]],
  s:[0,0,0,0,0,.001,.01,.35,.9,.97,.97,.98,.98,.98,.97,.97,.9,.75,.6],
  p:[.5,.5,.5,.6,.7,.7,.8,1,1.5,1.5,1.5,2,2.5,4,6,9,14,19,22]},
@@ -413,7 +427,9 @@ const REGIONS = [
 // Murshidabad with India. The two curves are opposites, which is the point: Gandhara's
 // Buddhist peak is two centuries earlier than India's and Bengal's two centuries later, and
 // Sindh is Muslim four hundred years before anywhere else in South Asia.
-{n:"Pakistan", pts:[[74.3,31.6,1,0,1.6],[67,24.9,.7,0,1.6],[71.5,30.2,.6,0,1.6],[71.6,34,.45,0,1.6],[68.9,27.7,.25,0,1.6]],
+// 0.8 rather than 1.6: tighter recovers Lahore and Karachi, but Delhi still reads high
+// whatever the sigma, because partition drew a hard border and a gaussian cannot.
+{n:"Pakistan", pts:[[74.3,31.6,1,0,.8],[67,24.9,.7,0,.8],[71.5,30.2,.6,0,.8],[71.6,34,.45,0,.8],[68.9,27.7,.25,0,.8]],
  s:[0,.0003,.0008,.001,.001,.0008,.0005,.0003,.0002,.0001,.0001,.0002,.0003,.0005,.001,.003,.013,.016,.014],
  si:[0,0,0,0,0,0,.08,.15,.3,.5,.6,.68,.72,.75,.75,.77,.97,.96,.96],
  p:[4.6,5.2,5.8,6.2,6.4,6.8,6.9,7,7.3,7.8,8,8.2,8.8,10.5,12.5,16.5,37,150,258]},
@@ -644,6 +660,8 @@ const BUDDHIST_SHARES = {
 "Tibet & Bhutan":     [0,0,0,.005,.01,.05,.6,.5,.75,.8,.85,.88,.9,.9,.9,.9,.85,.75,.75],
 "Nepal":              [.25,.25,.25,.25,.3,.3,.3,.3,.3,.3,.28,.25,.2,.15,.12,.1,.09,.085,.08],
 "Mongolia":           [0,0,0,0,0,0,.002,.005,.02,.05,.05,.4,.8,.9,.9,.9,.1,.45,.52],
+"Netherlands":        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0005,.003,.005],
+"Belgium & Luxembourg":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0003,.002,.003],
 "Pakistan":           [.18,.25,.3,.28,.22,.14,.06,.015,.003,.001,0,0,0,0,0,0,0,0,0],
 "Bangladesh":         [.08,.1,.14,.18,.22,.28,.35,.35,.18,.05,.02,.01,.008,.007,.007,.006,.007,.007,.006],
 "Rus & Russia":       [0,0,0,0,0,0,0,0,0,0,0,0,.01,.006,.006,.005,.001,.004,.005],
@@ -702,6 +720,8 @@ const URBAN_SHARES = {
 "Tibet & Bhutan":    [.01,.01,.01,.01,.01,.02,.04,.03,.04,.04,.04,.05,.05,.05,.05,.04,.04,.14,.4],
 "Nepal":             [.005,.005,.005,.005,.005,.01,.02,.02,.03,.03,.03,.04,.04,.04,.04,.03,.03,.16,.43],
 "Mongolia":          [.01,.01,.01,.01,.01,.01,.03,.01,.02,.02,.02,.02,.02,.03,.04,.05,.2,.57,.71],
+"Netherlands":       [.01,.03,.03,.03,.02,.01,.02,.02,.05,.17,.21,.29,.37,.33,.34,.55,.56,.77,.84],
+"Belgium & Luxembourg":[.02,.04,.05,.04,.03,.01,.02,.03,.1,.26,.29,.25,.32,.27,.3,.52,.63,.96,.97],
 "Pakistan":          [.1,.11,.12,.12,.12,.1,.1,.12,.14,.12,.13,.15,.13,.09,.09,.105,.18,.33,.39],
 "Bangladesh":        [.02,.02,.03,.03,.04,.04,.05,.05,.05,.06,.07,.07,.1,.05,.035,.024,.043,.24,.4]
 };
@@ -2845,17 +2865,20 @@ const CONF = {
     "Rus & Russia":[1000,1900], "Ethiopia & Horn":[400,1950], "Nubia & Sudan":[400,1950],
     "India":[500,1900], "China":[700,2000], "North America":[1600,1800],
     "Pakistan":[1800,1900], "Bangladesh":[1500,1900],
+    "Netherlands":[500,1800], "Belgium & Luxembourg":[500,1850],
     "Mesoamerica & Caribbean":[1500,1800], "South America":[1500,1850], "Philippines":[1550,1900] } },
   isl: { def: [800, 1850], reg: {
     "Arabia":[700,1950], "Levant":[700,1900], "Mesopotamia":[700,1950], "Persia":[700,1950],
     "Egypt":[700,1950], "Maghreb":[750,1950], "Iberia":[750,1850], "Anatolia":[900,1900],
     "India":[1000,1900], "Central Asia":[800,1950], "West Africa":[1100,1950],
     "Pakistan":[900,1900], "Bangladesh":[1500,1900],
+    "Netherlands":[1900,1980], "Belgium & Luxembourg":[1900,1980],
     "Maritime Southeast Asia":[1300,1900], "China":[900,2000] } },
   bud: { def: [1200, 1900], reg: {
     "India":[1400,1900], "Central Asia":[1850,9999], "China":[1950,2000],
     "Korea & Japan":[1600,1900], "Mongolia":[1500,2000], "Tibet & Bhutan":[1700,2000],
     "Pakistan":[400,1900], "Bangladesh":[1200,1900],
+    "Netherlands":[1900,2000], "Belgium & Luxembourg":[1900,2000],
     "Nepal":[1700,2000], "Sri Lanka":[33,1850], "Mainland Southeast Asia":[1000,1900],
     "Maritime Southeast Asia":[1850,1900], "Philippines":[1900,1950],
     "Rus & Russia":[1700,2000], "Persia":[9999,9999] } },
@@ -2871,6 +2894,7 @@ const CONF = {
     "Philippines":[1500,1900], "Sri Lanka":[1850,1900], "Tibet & Bhutan":[1900,1950],
     "Nepal":[1900,1950], "Mongolia":[1900,1950],
     "Pakistan":[1500,1900], "Bangladesh":[1600,1900],
+    "Netherlands":[1200,1795], "Belgium & Luxembourg":[1200,1846],
     "West Africa":[1800,1950], "Central Africa":[1900,1950], "East Africa":[1900,1950],
     "Ethiopia & Horn":[1900,1950], "Nubia & Sudan":[1900,1950], "Southern Africa":[1800,1900],
     "North America":[1700,1800], "Mesoamerica & Caribbean":[1500,1800],
@@ -2879,11 +2903,12 @@ const CONF = {
 // region+dataset pairs where the figure is not measurable even now, from the year it stops
 // improving. Capped at estimate however late the anchor.
 const CONTESTED = {
-  chr: { "France": 1900, "Rus & Russia": 2000 },
-  isl: { "France": 1900, "Rus & Russia": 2000 },
+  chr: { "France": 1900, "Rus & Russia": 2000, "Belgium & Luxembourg": 1950 },
+  isl: { "France": 1900, "Rus & Russia": 2000, "Belgium & Luxembourg": 1950 },
   bud: { "China": 33, "Korea & Japan": 1700, "Mainland Southeast Asia": 1950,
          "Tibet & Bhutan": 2000, "Rus & Russia": 2000, "France": 1900 },
-  urb: { "Pakistan": 1950, "Bangladesh": 1950, "West Africa": 1950, "Ethiopia & Horn": 1950, "Sri Lanka": 1950, "Nepal": 1950,
+  urb: { "Pakistan": 1950, "Bangladesh": 1950, "Netherlands": 1990, "Belgium & Luxembourg": 1990,
+         "West Africa": 1950, "Ethiopia & Horn": 1950, "Sri Lanka": 1950, "Nepal": 1950,
          "Egypt": 1950, "India": 1950 },
 };
 const CONF_LABEL = ['conjecture', 'estimate', 'attested'];
