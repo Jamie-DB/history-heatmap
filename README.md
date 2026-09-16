@@ -74,7 +74,7 @@ harmlessly and land on the demographic view.
 
 Two layers, mixed by the blend slider:
 
-1. **History (anchor data)**: 38 world regions (plus 21 city-scale and diaspora overlays), each with hand-curated estimates of every dataset's share and of population at 19 anchor years (33 to 2026), linearly interpolated. Grounded in standard scholarship: Rodney Stark's early growth estimates (~40% per decade to AD 300), dated conversions (Armenia 301, Ethiopia c. 340, Rus 988), post-Islamic-conquest decline curves, colonial-era spread, and modern Pew / World Christian Database figures. These are rough, contestable estimates; see the in-app data table.
+1. **History (anchor data)**: 42 world regions (plus 21 city-scale and diaspora overlays), each with hand-curated estimates of every dataset's share and of population at 19 anchor years (33 to 2026), linearly interpolated. Grounded in standard scholarship: Rodney Stark's early growth estimates (~40% per decade to AD 300), dated conversions (Armenia 301, Ethiopia c. 340, Rus 988), post-Islamic-conquest decline curves, colonial-era spread, and modern Pew / World Christian Database figures. These are rough, contestable estimates; see the in-app data table.
 2. **Simulation**: logistic growth + diffusion on the land grid, seeded at Jerusalem in AD 33. Spreads along populated cells, weakly across narrow seas, and over dated ocean routes (Atlantic 1493, Cape route 1498, Pacific 1565). Decline eras are derived from drops in the anchor data, scaled by the decline slider.
 
 ## Parameters
@@ -95,10 +95,9 @@ Sim-affecting sliders trigger a ~1s background recompute (progress shown on the 
 - Historical event overlays (wars, crusades, persecutions) with map annotations
 - Denominational split (Catholic / Orthodox / Protestant) after 1054 and 1517
 - Export animation as GIF/video
-- Fix the pair of known gaps below: Pakistan and Bangladesh, and the Dutch divergence
-- Land-mask the analytic render field, so a small region beside a huge one is not diluted by its neighbour's population mass
-- Speed up `buildViewField` at high zoom, where a broad gaussian clips to most of the viewport (18.5ms of a 23.6ms frame at 8x)
-- Repair the 18 region-anchor cells whose faith shares sum above 1
+- Add Austria, Switzerland and Czechia, which Central Europe has weight points for but no population
+- Speed up `buildViewField` at high zoom, where a broad gaussian clips to most of the viewport (20.6ms at 3x, and the accuracy work made it worse)
+- Something better than a sum of gaussians for hard political borders, which is what leaves Delhi reading 37% Muslim against India's 15
 
 ## Data provenance
 
@@ -160,22 +159,102 @@ The seven carry a tighter gaussian (2.0 grid cells rather than the 3.2 default) 
 are an order of magnitude smaller than China or India and the wide splat bled Malaysia's Muslim
 share up the peninsula.
 
-**Known gaps.** Pakistan and Bangladesh are absent, roughly 430 million people in 2026: India's
-population array is the subcontinent before 1900 and the Republic after, with nothing covering
-the difference. The Netherlands is inside Central Europe, where a German-dominated aggregate
-averages away the Dutch divergence: the region reads 12% urban in 1600 while the Dutch Republic
-was near 34% and Holland province alone above 60%.
+### Pakistan and Bangladesh
+
+Roughly 435 million people, previously absent entirely: India's weight points ran from Mumbai to
+Guwahati with nothing over the Indus valley or the Bengal delta, so nothing rendered there at all.
+Before 1947 neither is a polity, so these are territories — "Pakistan" is the Indus valley, and
+"Bangladesh" is the eastern delta only, leaving Kolkata and Murshidabad with India.
+
+The two curves are opposites, which is why they are separate regions. Gandhara's Buddhist peak is
+at AD 200, higher than India's and two centuries earlier. Bengal's is at 800 to 1000 under the
+Palas, two centuries after India's has collapsed — the only region in the dataset where Buddhism is
+still rising at 800. Sindh is 8% Muslim at the 800 anchor when India is at 0.2%, four hundred years
+ahead of the rest of South Asia. And Bengal's Muslim share is near zero in 1200 despite the conquest
+of 1204, then climbs from .12 to .58 between 1500 and 1800, which is Richard Eaton's argument that
+Islam arrived there with the plough during Mughal frontier settlement rather than with cavalry.
+
+Adding them forced rebasing India. Its population array meant the subcontinent at AD 33 and the
+Republic at 2026, with nothing marking the change; every anchor is now the Republic's territory,
+with subcontinent totals preserved from 33 to 1850 and split three ways. Its Muslim share had to
+move with it, from 24-32% (the undivided subcontinent, ~31% today) to 10-15% (the Republic, 14.2%).
+Left alone it would have rendered India roughly twice as Muslim as it is.
+
+Partition is carried in the data rather than smoothed: West Pakistan goes from 77% Muslim in 1941
+to 97% in 1951 because partition moved something like 14 million people in eighteen months. The 1900
+and 1950 anchors straddle it, so a step change ramps across fifty years. That is the cost of a fixed
+anchor grid and should be read as such.
+
+### The Low Countries
+
+Split out as **Netherlands** and **Belgium & Luxembourg**, which fixes the largest single distortion
+in the urbanisation dataset. It turned out not to be a split: Central Europe's population array is
+Germany alone at every anchor, so these 31 million people were missing rather than misfiled.
+
+Two regions rather than one, because the divergence runs between them. Belgium at the 10,000+
+threshold was 21.1% urban in 1500, the most urbanised territory in de Vries's entire dataset against
+a European mean of 5.6%; the Dutch Republic then overtakes it and peaks near 1700, with Holland
+province alone above 60%, the highest pre-industrial urbanisation anywhere on earth. That rank swap
+is the most legible fact in the series, and a combined region renders it as a smooth hump.
+
+Converting de Vries's 10,000+ figures to this dataset's 5,000+ threshold used his own 2,500+ column
+for the Netherlands and log-linear interpolation in threshold, giving a multiplier of 1.14 at 1800
+and 1.40 at 1525. **The multiplier is a property of each territory's town-size distribution and is
+never a constant** — Germany needs roughly 2.7 — and a uniform factor is exactly what buries the
+Dutch case.
+
+The ratio hides an absolute collapse: between 1675 and 1795 Leiden fell from 65,000 to 31,000 and
+Haarlem lost 43%, and of all the towns of Holland only Rotterdam and The Hague ended larger than
+they began. The rate held near .33 because the countryside emptied alongside the towns.
+
+The Revolt is invisible here. The 1585 fall of Antwerp split the region permanently into a Protestant
+north and a Catholic south and took Antwerp from 105,000 to 42,000 in four years. Both halves are
+Christian and this dataset has one Christian channel. What is visible is the modern collapse: 61%
+Christian in 2000 against 40% in 2026, the steepest fall of any region here.
+
+**Known gaps.** Austria, Switzerland and Czechia are absent, about 25 million people, even though
+Central Europe carries weight points sitting on Vienna, Zurich and Prague — the name and the
+footprint describe four countries and the population array describes one. Belgium's modern urban
+figure of 97% is an administrative artefact of the same kind that puts Japan at 92%, not a settlement
+pattern.
+
+### Accuracy: what a region claims against what the map draws
+
+The map is a sum of gaussians, so a region's rendered share is never exactly the figure in its
+own table. A panel of 36 cities measures the gap: each is sampled at a zoom where its own region
+is the finest thing on screen, and scored against that region's authored value. It runs at a
+mean of 5.4 percentage points, down from 11.4.
+
+Three things drive the remaining error, and they are worth knowing before reading anything off
+the map at a glance.
+
+**Brightness and share are weighted differently, on purpose.** A pixel inside Dearborn is also
+inside Wayne County and inside North America, and all three describe the same people at three
+resolutions. Summed by population mass they average a 50%-Muslim city with a 1%-Muslim continent
+and render 25%. Share is therefore weighted by how well each region resolves the pixel, while
+brightness still sums raw mass.
+
+**A gaussian does not know where the coast is.** Each weight point carries a precomputed mask of
+how much land lies between it and every cell within 25 degrees; an all-sea crossing keeps 15% of
+its share weight. Without it, Italy held a fifth of the share weight over Tunis. The attenuation
+only applies past three degrees, because an island must not be penalised for the water beside it.
+
+**Some gaps cannot be closed by any weighting rule.** Lhasa renders 17% Buddhist against Tibet's
+75, because Tibet has 4.5 million people between two neighbours with 1.4 billion each. Delhi
+renders 37% Muslim against India's 15, because partition drew a hard border in 1947 and a sum of
+gaussians cannot represent one. In both cases the region inspector shows the real curve.
 
 ### Data integrity
 
-Faiths are mutually exclusive shares of one population, so they cannot sum above 1 in a region
-at an anchor year. A boot-time check reports violations to the console. It currently finds 18,
-all pre-existing: Caucasus at 1.07 across nine anchors (it holds Azerbaijan, which is
-overwhelmingly Muslim, against a Christian share pinned at .85 to .88), Rus & Russia at 1.06
-across seven (Tatar and Bashkir Muslims plus Finno-Ugric and Siberian animists against a
-Christian share pinned at .92), and Iberia at 1.05 in 1200 and 1400, where both shares were
-authored against the whole peninsula rather than partitioning it. They are reported rather than
-silently corrected: which way to move those numbers is a question about history.
+Faiths are mutually exclusive shares of one population, so they cannot sum above 1 in a region at
+an anchor year. A boot-time check reports violations to the console, and **it currently reports
+none**. It found 18 when it was added, and each was wrong for its own reason. Iberia in 1200 and
+1400 had both shares authored against the whole peninsula rather than partitioning the Reconquista
+frontier. Rus had Christianity pinned at .92, leaving no room for Tatar and Bashkir Muslims plus
+the Finno-Ugric and Siberian animists who are not modelled here and so are the remainder. The
+Caucasus was a geography problem rather than a data one: its only weight points were Yerevan and
+Tbilisi, so it had no mass over Azerbaijan at all, while its population and shares were authored
+for a Caucasus that includes Azerbaijan's ten million.
 
 ### Coastlines
 
