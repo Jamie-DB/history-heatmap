@@ -22,3 +22,6 @@ build/
 
 # Agent workspaces
 .context/
+
+# Verification harness output
+dev/verify/shots/

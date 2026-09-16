@@ -115,6 +115,19 @@
     border-radius: 7px; padding: 5px 8px; font-size: 12px;
   }
   .ctl-label { font-size: 11.5px; color: var(--muted); }
+  .chk-set { display: contents; }
+  .region-panel { display: block; }
+  .rp-head { display: flex; align-items: baseline; gap: 10px; }
+  .rp-name { font-size: 14px; font-weight: 600; }
+  .rp-close { margin-left: auto; background: none; border: 0; padding: 0; cursor: pointer;
+    color: var(--muted); font-size: 16px; line-height: 1; }
+  .rp-meta { font-size: 11.5px; color: var(--muted); margin: 3px 0 12px; }
+  .rp-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 14px 22px; }
+  .rp-chart figcaption { display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 11px; color: var(--ink-2); margin: 0 0 3px; }
+  .rp-chart figcaption b { font-variant-numeric: tabular-nums; }
+  .rp-chart { margin: 0; }
+  .rp-chart svg { display: block; width: 100%; height: 52px; }
   .chk { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
   .chk input { accent-color: var(--accent); }
   .legend-name { font-size: 10.5px; color: var(--ink-2); margin-bottom: 2px; }
@@ -136,6 +149,12 @@
     background: var(--accent); border: 2.5px solid var(--surface); box-shadow: 0 0 0 1px var(--border);
     transform: translateX(-8px);
   }
+  .tl-ghost {
+    position: absolute; top: 9px; width: 16px; height: 16px; border-radius: 50%;
+    background: transparent; border: 2.5px dashed var(--muted);
+    transform: translateX(-8px); display: none;
+  }
+  .tl-ghost.on { display: block; }
   .tl-tick { position: absolute; top: 22px; width: 1px; height: 7px; background: var(--baseline); }
   .tl-tick-label {
     position: absolute; font-size: 9.5px; color: var(--muted); transform: translateX(-50%);
@@ -186,20 +205,7 @@
     <canvas id="map"></canvas>
     <div class="year-overlay"><span id="yearBig">AD 33</span><small id="yearSub">Pentecost, Jerusalem</small></div>
     <div class="sim-status" id="simStatus"></div>
-    <div class="pop-hud" id="popHud">
-      <div>
-        <div class="pop-name">Est. world population</div>
-        <div class="pop-row"><div class="pop-track"><div class="pop-fill" id="popFillW"></div></div><span class="pop-num" id="popNumW">–</span></div>
-      </div>
-      <div>
-        <div class="pop-name">Christians</div>
-        <div class="pop-row"><div class="pop-track"><div class="pop-fill" id="popFillC"></div></div><span class="pop-num" id="popNumC">–</span></div>
-      </div>
-      <div>
-        <div class="pop-name">Muslims</div>
-        <div class="pop-row"><div class="pop-track"><div class="pop-fill" id="popFillM"></div></div><span class="pop-num" id="popNumM">–</span></div>
-      </div>
-    </div>
+    <div class="pop-hud" id="popHud"></div>
     <div class="tooltip" id="tooltip"></div>
     <button class="reset-view" id="resetView" hidden>Reset view</button>
     <button class="fs-btn" id="fsBtn" title="Fill the window">&#x26F6;</button>
@@ -207,12 +213,8 @@
 
   <div class="controls">
     <button class="play-btn" id="playBtn" aria-label="Play or pause">&#9654;</button>
-    <span class="ctl-label">View</span>
-    <select id="modePicker">
-      <option value="main" selected>World demographics</option>
-      <option value="apostolic">Apostolic Age</option>
-      <option value="ot">Old Testament</option>
-    </select>
+    <span class="ctl-label" id="modePickerLabel">View</span>
+    <select id="modePicker"></select>
     <span class="ctl-label">Speed</span>
     <select id="speedSel">
       <option value="10">10 yrs/sec</option>
@@ -231,9 +233,12 @@
       <option value="majority">Majority</option>
     </select>
     <span class="ctl-label heat-only">Layers</span>
-    <label class="chk heat-only"><input type="checkbox" id="layerC" checked> Christianity</label>
-    <label class="chk heat-only"><input type="checkbox" id="layerM" checked> Islam</label>
-    <span class="ctl-label" id="hoverReadout"></span>
+    <span class="chk-set heat-only" id="layerToggles"></span>
+    <span class="ctl-label heat-only">Measure</span>
+    <select id="measureSel" class="heat-only"></select>
+    <label class="chk heat-only" title="Wash figures toward neutral where they are estimates or conjecture"><input type="checkbox" id="confChk" checked> confidence</label>
+    <label class="chk heat-only" title="Grey regions whose actual majority this model does not carry"><input type="checkbox" id="otherChk"> unmodelled</label>
+    <button class="chk heat-only" id="cmpBtn" style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 9px;cursor:pointer">Compare from here</button>
   </div>
 
   <div class="narr-panel" id="narrPanel"></div>
@@ -241,6 +246,7 @@
   <div class="timeline" id="timeline">
     <div class="tl-track"></div>
     <div class="tl-fill" id="tlFill"></div>
+    <div class="tl-ghost" id="tlGhost" title="Comparing from here"></div>
     <div class="tl-handle" id="tlHandle"></div>
   </div>
 
@@ -272,32 +278,29 @@
     </div>
   </div>
 
+  <div class="panel region-panel heat-only" id="regionPanel" hidden></div>
+
   <div class="legend heat-only">
     <span class="legend-title">Est. share of local population</span>
-    <div id="legC">
-      <div class="legend-name">Christianity</div>
-      <div class="legend-bar" id="legendBar"></div>
-      <div class="legend-ticks" id="legendTicks"></div>
-    </div>
-    <div id="legM">
-      <div class="legend-name">Islam</div>
-      <div class="legend-bar" id="legendBarM"></div>
-      <div class="legend-ticks" id="legendTicksM"></div>
-    </div>
-    <span class="legend-title" id="legMix"><span class="mix-chip" style="background:#846995"></span> mixed (both &ge; 2%)</span>
+    <span class="chk-set" id="legendBlocks"></span>
+    <span class="legend-title" id="legMix"></span>
+    <span class="legend-title" id="legConf"></span>
     <span class="legend-title" style="color:var(--muted)" id="legendNote">log-scaled; brightness also weights population density</span>
   </div>
 
   <details class="heat-only">
-    <summary>Data tables: estimated Christian and Muslim share by region</summary>
-    <div class="inner"><table id="dataTable"></table><table id="dataTableM" style="margin-top:14px"></table></div>
+    <summary id="tablesSummary">Data tables by region</summary>
+    <div class="inner" id="dataTables"></div>
   </details>
   <details class="heat-only">
     <summary>About this model</summary>
     <div class="inner notes">
-      <p>This is a toy historical model, not a precise dataset. Each of 32 world regions carries hand-curated anchor estimates of the Christian share of its population at 19 moments between AD 33 and 2026, drawn from standard scholarship: Rodney Stark's early-growth estimates (roughly 40% per decade to AD 300), dated conversions (Armenia 301, Ethiopia c. 340, Rus 988), decline curves after the Islamic conquests, the colonial-era spread to the Americas, and modern survey figures (Pew, World Christian Database).</p>
-      <p>The simulation layer is a logistic growth plus diffusion model on a 2&deg; land grid, seeded at Jerusalem in AD 33, spreading along populated cells, across narrow seas, and over dated ocean routes (1493 Atlantic, 1498 Cape route, 1565 Pacific). The blend slider mixes the two layers; at 100% history you see the anchor data, at 0% the model runs free under your parameters.</p>
-      <p>Heat intensity is the log-scaled Christian share multiplied by a population-density weight, so sparse deserts stay dark even where the faith is dominant, and early minority communities remain visible.</p>
+      <p>This is a toy historical model, not a precise dataset. Do not cite it. Thirty-eight world regions, plus twenty-one city-scale and diaspora overlays, each carry hand-curated anchor estimates at 19 moments between AD 33 and 2026, linearly interpolated between them. Four datasets ship: the Christian, Muslim and Buddhist share of local population, and the share living in settlements of 5,000 or more.</p>
+      <p>The sources are standard scholarship rather than any single authority. Rodney Stark's early-growth estimates (roughly 40% per decade to AD 300), dated conversions (Armenia 301, Ethiopia c. 340, Rus 988), post-conquest decline curves, colonial-era spread, and modern Pew and World Religion Database figures for the faiths; Bairoch, de Vries, Malanima, Anthony Reid, McEvedy &amp; Jones and UN World Urbanization Prospects for population and urbanisation. Where they disagree the middle was taken and the caveat widened, rather than the number narrowed. The README says which figures a knowledgeable reader should challenge, and why.</p>
+      <p>Confidence is drawn, not footnoted. Fills wash toward grey in proportion to how much is actually known: a figure reconstructed from monastic records does not render at the same strength as one from a national census, and the tooltip names the tier. Some quantities are contested and do not improve with time — France bans religious censuses, and "Buddhist" is not a well-defined share in Vietnam, where the 2019 state census returns 4.8% and a 2024 survey returns 38% of the same people.</p>
+      <p>Faiths are mutually exclusive shares of one population, so they contest each other for colour; with two visible, ground held by both blends, and with three it is striped, because the blend between two hues occupies the space a third would need. Urbanisation is a measure rather than a faith: a population can be 90% Christian and 90% urban at once, so it fills the map on its own ramp while the faiths reduce to their frontier lines over it.</p>
+      <p>The simulation layer is a logistic growth plus diffusion model on a 2&deg; land grid, one pass per faith, seeded at Jerusalem in AD 33, at Mecca and Medina in 622, and at Magadha, Gandhara and Anuradhapura for Buddhism, which was already five centuries old at the first anchor. It spreads along populated cells, weakly across narrow seas, and over dated ocean and overland routes. Decline eras are read out of drops in the anchor data, so each faith feels its own collapses. The blend slider mixes the two layers; at 100% history you see the anchor data, at 0% the model runs free under your parameters.</p>
+      <p>Heat intensity is the log-scaled share multiplied by a population-density weight, so sparse deserts stay dark even where a faith is dominant and early minority communities remain visible. The render field is an analytic gaussian with no land mask, which means a small region beside a huge one is diluted by its neighbour's population mass: Sri Lanka renders well below its true Buddhist share because India carries 68 million people against its 1.2. The leading dataset is still correct; only the intensity understates. Click a region to see its real curve.</p>
     </div>
   </details>
 </div>
@@ -318,53 +321,76 @@ const COAST50D=[[18000,-1617,-15,-13,-10,-15,-13,-8,-6,-11,1,-11,13,12,14,9,9,2,
 const ANCHORS = [33,100,200,300,400,600,800,1000,1200,1400,1500,1600,1700,1800,1850,1900,1950,2000,2026];
 // Each region: name, weight points [lon, lat, weight], s = Christian share at anchors, p = population (millions, rough)
 const REGIONS = [
-{n:"Levant", pts:[[35.2,31.8,1],[36.3,33.5,.8],[35.5,33.9,.5]],
+{n:"Levant", pts:[[36.3,33.5,0.8,0,1.6],[35.5,33.9,0.6,0,1.6],[35.9,32,0.6,0,1.6],[35.2,31.8,0.6,0,1.6],[37.2,36.2,0.6,0,1.6],[34.8,32.1,0.6,0,1.6],[36.7,34.7,0.4,0,1.6]],
  s:[.001,.012,.05,.18,.5,.6,.45,.35,.3,.2,.15,.12,.11,.1,.1,.11,.13,.07,.05],
  p:[4,4,4,4,4,4,3,3,3,2,2,2,2,3,3,4,8,25,45]},
-{n:"Anatolia", pts:[[27.3,38,.9],[32.9,39.9,.6],[36.2,36.2,1],[29,41,.9]],
+{n:"Anatolia", pts:[[29,41,1,0,1.6],[32.9,39.9,0.8,0,1.6],[27.3,38,0.7,0,1.6],[35.3,37,0.6,0,1.6],[29.1,40.2,0.5,0,1.6],[37.4,37.1,0.5,0,1.6],[32.5,37.9,0.4,0,1.6],[30.7,36.9,0.4,0,1.6],[40.2,37.9,0.4,0,1.6],[39.7,41,0.3,0,1.6],[41.3,39.9,0.3,0,1.6]],
  s:[.0005,.006,.04,.12,.45,.8,.85,.85,.55,.25,.18,.14,.13,.13,.13,.16,.01,.003,.002],
  p:[8,9,9,9,10,8,7,8,8,7,6,7,7,9,10,13,21,65,87]},
-{n:"Egypt", pts:[[29.9,31.2,1],[31.2,30,.9],[32.6,25.7,.5]],
+{n:"Egypt", pts:[[31.2,30,1,0,1.6],[29.9,31.2,0.7,0,1.6],[31,30.8,0.4,0,1.6],[31.2,27.2,0.4,0,1.6],[32.6,25.7,0.3,0,1.6],[32.3,31.3,0.3,0,1.6],[32.5,30,0.2,0,1.6]],
  s:[.0002,.005,.04,.18,.55,.85,.55,.4,.25,.15,.12,.1,.1,.1,.1,.1,.1,.1,.1],
  p:[5,6,6,6,6,5,4,4,4,4,4,4,4,4,5,10,20,68,112]},
-{n:"Maghreb", pts:[[10.3,36.8,1],[3,36.7,.6],[-6.8,34,.5]],
+{n:"Maghreb", pts:[[-7.6,33.6,1,0,1.6],[3,36.7,0.9,0,1.6],[10.3,36.8,0.8,0,1.6],[-6.8,34,0.6,0,1.6],[13.2,32.9,0.5,0,1.6],[-0.6,35.7,0.5,0,1.6],[-8,31.6,0.5,0,1.6],[-5,34,0.5,0,1.6],[6.6,36.4,0.4,0,1.6],[20.1,32.1,0.3,0,1.6],[10.8,34.7,0.3,0,1.6]],
  s:[0,.002,.05,.2,.45,.35,.05,.01,.005,.002,.002,.002,.002,.002,.005,.02,.02,.005,.005],
  p:[6,7,7,7,7,5,5,5,5,5,5,5,5,6,7,10,22,75,105]},
-{n:"Greece & Balkans", pts:[[23.7,38,.8],[22.9,40.6,.8],[20.5,44.8,.6],[26.1,44.4,.6]],
+{n:"Greece & Balkans", pts:[[26.1,44.4,0.9,0,1.6],[23.7,38,0.8,0,1.6],[20.5,44.8,0.8,0,1.6],[22.9,40.6,0.6,0,1.6],[23.3,42.7,0.6,0,1.6],[15.98,45.8,0.6,0,1.6],[18.4,43.9,0.4,0,1.6],[19.8,41.3,0.4,0,1.6],[21.4,42,0.4,0,1.6],[16.4,43.5,0.3,0,1.6],[23.6,46.8,0.4,0,1.6]],
  s:[.0005,.006,.03,.12,.5,.8,.85,.88,.85,.8,.75,.72,.72,.75,.78,.8,.8,.82,.8],
  p:[6,7,7,7,7,6,5,6,7,7,7,7,8,10,12,17,25,65,63]},
-{n:"Italy", pts:[[12.5,41.9,1],[9.2,45.5,.7],[14.3,40.9,.6]],
+{n:"Italy", pts:[[12.5,41.9,1,0,1.6],[9.2,45.5,0.9,0,1.6],[14.3,40.9,0.7,0,1.6],[7.7,45.1,0.6,0,1.6],[13.4,38.1,0.5,0,1.6],[11.3,44.5,0.5,0,1.6],[16.9,41.1,0.4,0,1.6],[11.3,43.8,0.4,0,1.6],[8.9,44.4,0.4,0,1.6],[15.1,37.5,0.3,0,1.6]],
  s:[.0002,.004,.025,.1,.5,.9,.95,.95,.97,.97,.97,.97,.97,.97,.97,.95,.9,.85,.75],
  p:[7,8,8,8,7,5,4,5,7,8,10,12,13,17,24,32,47,57,59]},
-{n:"Iberia", pts:[[-4,39.9,.8],[2.2,41.4,.6],[-9.1,38.7,.6],[-5.9,37.4,.6]],
- s:[0,.002,.015,.06,.35,.8,.6,.5,.65,.9,.95,.97,.97,.97,.97,.97,.95,.85,.6],
+{n:"Iberia", pts:[[-3.7,40.4,1,0,1.6],[2.2,41.4,0.8,0,1.6],[-9.1,38.7,0.7,0,1.6],[-5.9,37.4,0.6,0,1.6],[-0.4,39.5,0.5,0,1.6],[-8.6,41.1,0.5,0,1.6],[-2.9,43.3,0.4,0,1.6],[-0.9,41.7,0.4,0,1.6],[-4.4,36.7,0.4,0,1.6],[-1.1,38,0.3,0,1.6]],
+ // 1200 and 1400 were each authored against the whole peninsula rather than partitioning the
+ // Reconquista frontier, so they summed above 100%
+ s:[0,.002,.015,.06,.35,.8,.6,.5,.59,.86,.95,.97,.97,.97,.97,.97,.95,.85,.6],
  p:[6,7,7,7,7,5,5,6,7,8,9,10,10,14,18,24,36,50,58]},
-{n:"France", pts:[[4.8,45.8,.7],[2.3,48.9,1],[5.4,43.3,.6],[-.6,44.8,.4]],
+{n:"France", pts:[[2.3,48.9,1,0,1.6],[4.8,45.8,0.7,0,1.6],[5.4,43.3,0.6,0,1.6],[-0.6,44.8,0.5,0,1.6],[3.1,50.6,0.5,0,1.6],[1.4,43.6,0.5,0,1.6],[-1.6,47.2,0.4,0,1.6],[7.8,48.6,0.4,0,1.6],[7.3,43.7,0.3,0,1.6],[-1.7,48.1,0.3,0,1.6]],
  s:[0,.002,.012,.06,.35,.8,.95,.97,.97,.97,.97,.97,.97,.95,.95,.9,.85,.65,.5],
  p:[6,7,7,7,7,5,5,7,10,12,15,18,21,29,36,40,42,59,65]},
-{n:"Britain & Ireland", pts:[[-.1,51.5,1],[-6.3,53.3,.5],[-1.1,54,.4],[-4.3,55.9,.4]],
+{n:"Britain & Ireland", pts:[[-0.1,51.5,1,0,1.6],[-1.9,52.5,0.6,0,1.6],[-2.2,53.5,0.6,0,1.6],[-1.5,53.8,0.5,0,1.6],[-4.3,55.9,0.5,0,1.6],[-6.3,53.3,0.5,0,1.6],[-3,53.4,0.4,0,1.6],[-3.2,55.9,0.3,0,1.6],[-2.6,51.5,0.3,0,1.6],[-3.2,51.5,0.3,0,1.6],[-5.9,54.6,0.3,0,1.6],[-1.6,55,0.3,0,1.6]],
  s:[0,.0005,.005,.03,.12,.45,.85,.95,.97,.97,.97,.97,.95,.92,.9,.88,.75,.6,.45],
  p:[1,1,1,1,1,1,1,2,3,4,4,6,9,16,27,41,50,63,72]},
-{n:"Central Europe", pts:[[6.9,50.9,.8],[14.4,50.1,.6],[16.4,48.2,.7],[13.4,52.5,.8],[8.5,47.4,.4]],
+{n:"Central Europe", pts:[[13.4,52.5,0.9,0,1.6],[6.9,50.9,0.8,0,1.2],[11.6,48.1,0.7,0,1.6],[10,53.6,0.6,0,1.6],[8.7,50.1,0.6,0,1.6],[16.4,48.2,0.6,0,1.6],[14.4,50.1,0.6,0,1.6],[19,47.5,0.6,0,1.6],[9.2,48.8,0.5,0,1.6],[8.5,47.4,0.4,0,1.6],[12.4,51.3,0.4,0,1.6],[17.1,48.1,0.3,0,1.6]],
  s:[0,0,.002,.01,.06,.2,.55,.85,.95,.97,.97,.95,.95,.95,.93,.92,.85,.7,.55],
  p:[3,3,4,4,4,3,4,6,9,10,12,14,17,25,35,50,70,82,83]},
-{n:"Scandinavia", pts:[[10.7,59.9,.6],[18.1,59.3,.7],[12.6,55.7,.7]],
+// The Low Countries were never inside Central Europe: its population array is Germany alone
+// at every anchor, so this fills a gap rather than rebalancing one. Two regions and not one,
+// because the divergence runs BETWEEN them. Belgium leads on urbanisation from 1400 to 1550
+// and the Netherlands from 1600, and that rank swap is the most legible fact in the series;
+// a combined region renders a smooth hump and erases it. Belgium held 60% of the region's
+// people in 1500 and holds 41% now, which static point weights cannot follow either.
+{n:"Netherlands", pts:[[4.9,52.37,1,0,1.2],[4.48,51.92,.8,0,1.2],[5.12,52.09,.4,0,1.2],[6.57,53.22,.35,0,1.2],[5.48,51.44,.3,0,1.2]],
+ s:[0,0,.001,.005,.03,.1,.7,.92,.96,.97,.97,.98,.97,.97,.96,.95,.83,.55,.35],
+ si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.002,.05,.07],
+ p:[.2,.2,.2,.2,.2,.18,.22,.28,.55,.65,.95,1.5,1.9,2.1,3,5.1,10,16,18]},
+{n:"Belgium & Luxembourg", pts:[[4.4,51.22,1,0,1.2],[3.72,51.05,.7,0,1.2],[4.35,50.85,.9,0,1.2],[5.57,50.63,.5,0,1.2],[6.13,49.61,.12,0,1.2]],
+ s:[0,0,.003,.02,.08,.35,.88,.97,.98,.98,.98,.98,.99,.98,.98,.98,.95,.7,.46],
+ si:[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.002,.04,.08],
+ p:[.35,.4,.4,.32,.3,.27,.3,.4,.95,.85,1.45,1.65,2.05,3.1,4.6,6.9,8.9,10.7,12.5]},
+{n:"Scandinavia", pts:[[18.1,59.3,0.8,0,1.6],[12.6,55.7,0.7,0,1.6],[10.7,59.9,0.6,0,1.6],[24.9,60.2,0.6,0,1.6],[12,57.7,0.4,0,1.6],[5.3,60.4,0.3,0,1.6],[13,55.6,0.3,0,1.6],[10.2,56.2,0.3,0,1.6],[10.4,63.4,0.2,0,1.6]],
  s:[0,0,0,0,0,.001,.01,.35,.9,.97,.97,.98,.98,.98,.97,.97,.9,.75,.6],
  p:[.5,.5,.5,.6,.7,.7,.8,1,1.5,1.5,1.5,2,2.5,4,6,9,14,19,22]},
-{n:"Rus & Russia", pts:[[30.5,50.5,.8],[37.6,55.8,1],[31.3,58.5,.4],[60.6,56.8,.4],[82.9,55,.3]],
- s:[0,0,0,0,0,.0005,.005,.3,.8,.9,.92,.92,.92,.92,.92,.9,.3,.55,.7],
+{n:"Rus & Russia", pts:[[37.6,55.8,1,0,2.6],[30.5,50.5,0.7,0,2.6],[30.3,59.9,0.6,0,2.6],[60.6,56.8,0.4,0,2.6],[82.9,55,0.4,0,2.6],[49.1,55.8,0.4,0,2.6],[44,56.3,0.4,0,2.6],[39.7,47.2,0.4,0,2.6],[27.6,53.9,0.4,0,2.6],[50.2,53.2,0.3,0,2.6],[73.4,55,0.3,0,2.6],[92.9,56,0.3,0,2.6],[44.5,48.7,0.3,0,2.6],[131.9,43.1,0.2,0,2.6]],
+ // .92 left no room for Tatar and Bashkir Muslims plus Finno-Ugric and Siberian animists,
+ // who are not modelled here and so are the remainder
+ s:[0,0,0,0,0,.0005,.005,.3,.78,.82,.83,.84,.84,.84,.84,.83,.3,.55,.7],
  p:[2,2,2,3,3,3,4,5,7,9,11,14,18,31,45,80,102,105,105]},
-{n:"Poland & Baltics", pts:[[21,52.2,1],[25.3,54.7,.4],[19.9,50.1,.6]],
+{n:"Poland & Baltics", pts:[[21,52.2,1,0,1.6],[19.9,50.1,0.6,0,1.6],[19.5,51.8,0.5,0,1.6],[17,51.1,0.5,0,1.6],[16.9,52.4,0.4,0,1.6],[18.6,54.4,0.4,0,1.6],[25.3,54.7,0.4,0,1.6],[24.1,56.9,0.4,0,1.6],[24.8,59.4,0.3,0,1.6]],
  s:[0,0,0,0,0,.001,.005,.3,.8,.9,.95,.95,.95,.95,.95,.95,.9,.9,.85],
  p:[1,1,1,1,1,1,2,2,3,4,5,6,7,10,14,22,30,42,42]},
-{n:"Mesopotamia", pts:[[44.4,33.3,1],[43.1,36.3,.6],[47.8,30.5,.4]],
+{n:"Mesopotamia", pts:[[44.4,33.3,1,0,1.6],[47.8,30.5,0.5,0,1.6],[43.1,36.3,0.5,0,1.6],[44,36.2,0.4,0,1.6],[44.3,32,0.4,0,1.6],[44.4,35.5,0.3,0,1.6]],
  s:[.0005,.008,.03,.1,.2,.35,.3,.2,.15,.05,.04,.035,.03,.03,.03,.05,.04,.02,.005],
  p:[5,5,5,5,5,5,5,4,3,2,2,2,2,2,3,4,7,26,45]},
-{n:"Persia", pts:[[51.7,32.7,.8],[51.4,35.7,1],[59.6,36.3,.5]],
+{n:"Persia", pts:[[51.4,35.7,1,0,1.8],[59.6,36.3,0.6,0,1.8],[69.2,34.5,0.6,0,1.8],[51.7,32.7,0.5,0,1.8],[52.5,29.6,0.5,0,1.8],[46.3,38.1,0.5,0,1.8],[48.7,31.3,0.4,0,1.8],[65.7,31.6,0.3,0,1.8],[62.2,34.3,0.3,0,1.8]],
  s:[0,.001,.008,.03,.08,.1,.08,.05,.035,.01,.007,.005,.005,.004,.004,.004,.003,.003,.004],
  p:[8,8,8,9,9,8,8,8,7,6,6,7,7,8,9,10,17,66,88]},
-{n:"Caucasus", pts:[[44.5,40.2,.8],[44.8,41.7,.7]],
- s:[0,.003,.02,.35,.75,.85,.85,.88,.88,.85,.85,.85,.85,.85,.85,.85,.6,.75,.8],
+{n:"Caucasus", pts:[[49.8,40.4,.9,0,1.6],[44.5,40.2,.7,0,1.6],[44.8,41.7,.7,0,1.6],[46.4,40.7,.3,0,1.6]],
+ // The region had no weight point in Azerbaijan, yet its population and Muslim share were
+ // authored for a Caucasus that includes Azerbaijan's ten million. Armenia converts in 301
+ // and Georgia around 337, but Caucasian Albania, roughly modern Azerbaijan and now two
+ // thirds of the region's people, was taken by the Arabs in 642 and is Shia from the
+ // Safavids. The region is about 61% Muslim today, not 18%.
+ s:[0,.003,.02,.3,.6,.72,.6,.45,.4,.38,.36,.35,.35,.36,.38,.4,.28,.36,.38],
  p:[1.5,1.5,1.5,2,2,2,2,2,2,2,2,2,2,3,4,6,10,16,17]},
 {n:"Arabia", pts:[[44.1,17.5,.5],[39.8,21.4,.6],[46.7,24.7,.7],[55.3,25.3,.5]],
  s:[0,.001,.005,.02,.05,.07,.01,.003,.002,.001,.001,.001,.001,.001,.001,.001,.002,.03,.05],
@@ -387,21 +413,84 @@ const REGIONS = [
 {n:"Southern Africa", pts:[[28,-26.2,1],[18.4,-33.9,.6],[31,-17.8,.5],[35,-15,.5]],
  s:[0,0,0,0,0,0,0,0,0,0,0,.005,.02,.05,.15,.4,.6,.8,.85],
  p:[2,2,2,3,3,3,4,4,5,6,6,7,7,9,11,15,30,75,110]},
-{n:"India", pts:[[76.3,10,.8],[73.8,15.5,.4],[80.3,13.1,.6],[91.7,26.1,.5],[77.2,28.6,.5],[72.8,19,.5]],
+{n:"India", pts:[[77.2,28.6,1,0,2.2],[72.8,19,0.9,0,2.2],[88.4,22.6,0.9,0,2.2],[80.3,13.1,0.7,0,2.2],[78.5,17.4,0.7,0,2.2],[81.8,25.3,0.7,0,2.2],[85.1,25.6,0.7,0,2.2],[72.6,23,0.6,0,2.2],[75.8,26.9,0.6,0,2.2],[77.6,12.9,0.6,0,2.2],[76.3,10,0.5,0,2.2],[73.9,15.5,0.4,0,2.2],[79.1,21.1,0.4,0,2.2],[91.7,26.1,0.3,0,2.2]],
  s:[0,.0003,.0008,.001,.0015,.002,.002,.002,.002,.002,.002,.004,.005,.006,.008,.01,.02,.024,.025],
- p:[45,50,55,60,65,70,75,80,90,100,110,120,140,180,220,280,390,1050,1450]},
-{n:"Central Asia", pts:[[66.9,39.7,.8],[62.2,37.7,.6],[71.4,51.2,.4],[74.6,42.9,.4]],
+ // Every anchor is now the Republic's territory, rather than the subcontinent before 1900 and
+ // the Republic after. Subcontinent totals are preserved from 33 to 1850 and split three ways;
+ // 1900 rises to match the 1901 Census of India (283.9M excluding Burma) and 1950 the three
+ // 1951 censuses.
+ p:[37,41,45,49,54,58,61,65,73,82,91,99,116,148,181,238,357,1050,1450]},
+// Pakistan and Bangladesh, about 435 million people in 2026, were absent from the dataset
+// entirely: India's weight points ran from Mumbai to Guwahati with nothing over the Indus
+// valley or the Bengal delta. Before 1947 neither is a polity, so these are territories.
+// "Pakistan" is the Indus valley; "Bangladesh" is the eastern delta only, leaving Kolkata and
+// Murshidabad with India. The two curves are opposites, which is the point: Gandhara's
+// Buddhist peak is two centuries earlier than India's and Bengal's two centuries later, and
+// Sindh is Muslim four hundred years before anywhere else in South Asia.
+// 0.8 rather than 1.6: tighter recovers Lahore and Karachi, but Delhi still reads high
+// whatever the sigma, because partition drew a hard border and a gaussian cannot.
+{n:"Pakistan", pts:[[74.3,31.6,1,0,.8],[67,24.9,.7,0,.8],[71.5,30.2,.6,0,.8],[71.6,34,.45,0,.8],[68.9,27.7,.25,0,.8]],
+ s:[0,.0003,.0008,.001,.001,.0008,.0005,.0003,.0002,.0001,.0001,.0002,.0003,.0005,.001,.003,.013,.016,.014],
+ si:[0,0,0,0,0,0,.08,.15,.3,.5,.6,.68,.72,.75,.75,.77,.97,.96,.96],
+ p:[4.6,5.2,5.8,6.2,6.4,6.8,6.9,7,7.3,7.8,8,8.2,8.8,10.5,12.5,16.5,37,150,258]},
+{n:"Bangladesh", pts:[[90.4,23.8,1,0,1],[91.8,22.4,.6,0,1],[89.1,24.9,.55,0,1],[89.5,22.8,.4,0,1]],
+ s:[0,0,0,0,0,0,0,0,0,0,0,.001,.002,.002,.002,.002,.003,.003,.003],
+ si:[0,0,0,0,0,0,.001,.002,.02,.08,.12,.25,.45,.58,.62,.66,.77,.89,.91],
+ p:[1.5,1.8,2,2.3,2.8,3.4,4,4.6,5.6,6.8,8,9.3,11.5,16.5,21.5,28.9,38,129,177]},
+{n:"Central Asia", pts:[[69.2,41.3,1,0,1.8],[76.9,43.2,0.7,0,1.8],[68.8,38.6,0.5,0,1.8],[74.6,42.9,0.4,0,1.8],[66.9,39.7,0.4,0,1.8],[58.4,37.9,0.3,0,1.8],[71.4,51.2,0.3,0,1.8],[64.4,39.8,0.3,0,1.8]],
  s:[0,0,.001,.005,.01,.05,.08,.08,.06,.005,.004,.003,.003,.005,.01,.03,.05,.03,.025],
  p:[4,4,4,5,5,5,6,6,6,5,5,5,5,6,7,9,17,55,78]},
-{n:"China", pts:[[108.9,34.3,.8],[116.4,39.9,1],[121.5,31.2,.9],[113.3,23.1,.7],[104.1,30.7,.6]],
+{n:"China", pts:[[116.4,39.9,1,0,2.2],[121.5,31.2,0.9,0,2.2],[113.3,23.1,0.8,0,2.2],[104.1,30.7,0.7,0,2.2],[114.3,30.6,0.7,0,2.2],[108.9,34.3,0.6,0,2.2],[113.6,34.7,0.6,0,2.2],[106.5,29.6,0.6,0,2.2],[123.4,41.8,0.5,0,2.2],[113,28.2,0.5,0,2.2],[126.6,45.8,0.4,0,2.2],[102.7,25,0.4,0,2.2],[119.3,26.1,0.4,0,2.2],[87.6,43.8,0.3,0,2.2],[103.8,36.1,0.3,0,2.2]],
  s:[0,0,0,0,0,.0003,.0008,.0002,.001,.0001,.0005,.001,.002,.001,.001,.002,.01,.04,.05],
  p:[55,58,60,60,60,55,60,80,110,90,110,150,180,320,410,440,550,1270,1420]},
 {n:"Korea & Japan", pts:[[127,37.6,1],[139.7,35.7,.9],[129.9,32.8,.5],[135.5,34.7,.6]],
  s:[0,0,0,0,0,0,0,0,0,0,.001,.012,.002,.002,.004,.01,.05,.13,.14],
  p:[3,4,5,6,7,8,10,12,14,17,20,25,32,38,45,60,105,175,175]},
-{n:"Southeast Asia", pts:[[121,14.6,1],[106.8,-6.2,.8],[106.7,10.8,.6],[100.5,13.8,.5],[96.2,16.8,.4]],
- s:[0,0,0,0,0,0,0,0,0,.001,.002,.04,.06,.07,.08,.1,.15,.2,.22],
- p:[8,9,10,12,14,16,18,22,26,30,34,38,42,50,60,90,180,530,690]},
+// These seven carry a per-point sigma set by real geographic extent rather than the 3.2-cell
+// default, because they are an order of magnitude smaller than China or India and the wide
+// splat bled Malaysia's Muslim share up the peninsula: Bangkok read 23% Muslim against the
+// region's own 3.5%.
+//
+// The analytic render field is a pure gaussian with no land mask (paintMap clips to land
+// afterwards), so a small region beside a huge one is diluted by its neighbour's mass no
+// matter how tight its own splat is. Sri Lanka at AD 600 is 85% Buddhist in the data but
+// renders nearer 50%, because India carries 68 million people against its 1.2 and has a
+// weight point at Chennai five degrees away. Tightening its sigma recovers most of the
+// difference and the region inspector shows the true curve; the rest is a property of the
+// model, not a bug in the data.
+// Southeast Asia is split three ways and the Himalaya two ways, because an averaged region
+// asserts a blend nobody lives in: mainland SE Asia is ~80% Buddhist and maritime ~85% Muslim,
+// and the Philippines is ~90% Christian. Tibet is ~90% Buddhist while Nepal, which holds
+// seven eighths of the combined population, is ~81% Hindu. Population figures follow Anthony
+// Reid rather than the old array, which ran ~1.6x high before 1850 (see README).
+{n:"Mainland Southeast Asia", pts:[[105.8,21,1,0,2],[100.5,13.8,.9,0,2],[106.7,10.8,.8,0,2],[96.2,17,.7,0,2]],
+ s:[0,0,0,0,0,0,0,0,0,0,0,.002,.02,.025,.03,.033,.045,.05,.055],
+ si:[0,0,0,0,0,0,0,0,.001,.005,.015,.02,.025,.03,.03,.035,.035,.03,.03],
+ p:[3,3,4,4,5,6,7,8,11,10,11,12,13,16,21,33,70,205,250]},
+{n:"Maritime Southeast Asia", pts:[[106.8,-6.2,1,0,2],[112.7,-7.2,.8,0,2],[101.7,3.1,.6,0,2],[98.7,3.6,.5,0,2]],
+ s:[0,0,0,0,0,0,0,0,0,0,0,.005,.01,.01,.015,.025,.05,.09,.11],
+ si:[0,0,0,0,0,0,0,.001,.005,.05,.15,.5,.7,.8,.83,.85,.86,.83,.82],
+ p:[2,2,2,3,3,4,5,5,6,7,8,10,11,14,21,42,80,240,330]},
+{n:"Philippines", pts:[[121,14.6,1,0,1.5],[123.9,10.3,.5,0,1.5],[125.6,7.1,.4,0,1.5]],
+ s:[0,0,0,0,0,0,0,0,0,0,0,.5,.8,.88,.9,.9,.92,.92,.9],
+ si:[0,0,0,0,0,0,0,0,0,.02,.1,.08,.07,.06,.05,.05,.05,.055,.065],
+ p:[.3,.3,.4,.4,.5,.6,.7,.8,1,1.2,1.5,1,1.2,1.6,3.5,7.6,19,78,115]},
+{n:"Sri Lanka", pts:[[79.9,6.9,1,0,0.8],[80.6,7.3,.5,0,0.8],[80,9.7,.4,0,0.8]],
+ s:[0,0,0,0,0,.002,.002,.002,.001,.001,.001,.06,.1,.1,.1,.1,.09,.08,.075],
+ si:[0,0,0,0,0,0,.005,.01,.03,.05,.06,.06,.06,.06,.065,.07,.065,.085,.105],
+ p:[.8,.8,1,1,1.2,1.2,1.5,1.5,2,1.2,1.2,1,1,1.2,1.7,3.6,8,19,23]},
+{n:"Tibet & Bhutan", pts:[[91.1,29.7,1,0,1.2],[88.6,29.3,.4,0,1.2],[89.6,27.5,.4,0,1.2]],
+ s:[0,0,0,0,0,0,.002,.002,.001,0,0,.002,.004,0,0,0,.001,.002,.003],
+ si:[0,0,0,0,0,0,0,.001,.002,.003,.004,.005,.006,.006,.006,.006,.005,.005,.005],
+ p:[.4,.4,.5,.5,.5,.8,1,.9,1,1,1,1,1,1.2,1.2,1.5,1.5,3.2,4.5]},
+{n:"Nepal", pts:[[85.3,27.7,1,0,1],[85.5,26.7,.9,0,1],[83.9,28.2,.4,0,1]],
+ s:[0,0,0,0,0,0,0,0,0,0,0,0,.001,0,0,.0005,.001,.005,.019],
+ si:[0,0,0,0,0,0,0,.001,.002,.003,.006,.012,.018,.025,.03,.035,.04,.048,.051],
+ p:[.8,.8,1,1,1,1.2,1.5,1.5,1.7,1.7,2,2.5,3,3.5,4,5.5,8.5,24,31]},
+{n:"Mongolia", pts:[[106.9,47.9,1,0,2],[105.9,49.5,.3,0,2],[91.6,48,.2,0,2]],
+ s:[0,0,0,0,0,.001,.01,.05,.12,.02,.002,0,0,0,0,0,0,.005,.013],
+ si:[0,0,0,0,0,0,.005,.01,.02,.02,.01,.01,.01,.01,.015,.025,.03,.032,.032],
+ p:[.3,.3,.3,.3,.4,.4,.5,.5,.8,.6,.6,.6,.6,.6,.7,.7,.8,2.4,3.6]},
 {n:"North America", pts:[
  // two always-on points carry the pre-colonial population (Eastern Woodlands, Mississippi valley)
  [-76,42,.3],[-90,35,.3],
@@ -524,7 +613,7 @@ const ISLAM_SHARES = {
 "Maghreb":           [0,0,0,0,0,0,.7,.85,.9,.96,.97,.97,.97,.97,.96,.95,.97,.99,.99],
 "Greece & Balkans":  [0,0,0,0,0,0,0,0,.02,.08,.15,.2,.2,.18,.15,.12,.08,.08,.08],
 "Italy":             [0,0,0,0,0,0,.01,.05,.02,0,0,0,0,0,0,0,.001,.02,.03],
-"Iberia":            [0,0,0,0,0,0,.35,.5,.4,.15,.05,.01,0,0,0,0,.001,.02,.04],
+"Iberia":            [0,0,0,0,0,0,.35,.5,.39,.12,.05,.01,0,0,0,0,.001,.02,.04],
 "France":            [0,0,0,0,0,0,.01,0,0,0,0,0,0,0,.001,.002,.02,.08,.1],
 "Britain & Ireland": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.01,.04,.07],
 "Central Europe":    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.002,.01,.05,.08],
@@ -533,7 +622,7 @@ const ISLAM_SHARES = {
 "Poland & Baltics":  [0,0,0,0,0,0,0,0,.005,.005,.005,.005,.003,.002,.002,.002,.001,.002,.005],
 "Mesopotamia":       [0,0,0,0,0,0,.5,.65,.75,.9,.92,.93,.94,.95,.95,.93,.95,.97,.98],
 "Persia":            [0,0,0,0,0,0,.6,.8,.85,.92,.95,.97,.98,.98,.98,.98,.98,.99,.99],
-"Caucasus":          [0,0,0,0,0,0,.1,.15,.18,.22,.22,.22,.22,.2,.2,.2,.25,.2,.18],
+"Caucasus":          [0,0,0,0,0,.02,.25,.42,.5,.55,.58,.6,.6,.6,.58,.56,.5,.58,.61],
 "Arabia":            [0,0,0,0,0,0,.95,.97,.98,.99,.99,.99,.99,.99,.99,.99,.97,.93,.92],
 "Ethiopia & Horn":   [0,0,0,0,0,0,.12,.2,.25,.3,.32,.33,.33,.33,.33,.34,.35,.38,.4],
 "Nubia & Sudan":     [0,0,0,0,0,0,.05,.1,.2,.45,.6,.7,.85,.87,.87,.85,.75,.65,.62],
@@ -541,18 +630,111 @@ const ISLAM_SHARES = {
 "Central Africa":    [0,0,0,0,0,0,0,0,0,0,0,.01,.01,.01,.02,.02,.05,.08,.1],
 "East Africa":       [0,0,0,0,0,0,.01,.05,.08,.15,.16,.16,.17,.18,.18,.18,.18,.2,.2],
 "Southern Africa":   [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.01,.02,.02],
-"India":             [0,0,0,0,0,0,.01,.02,.1,.2,.22,.24,.25,.25,.24,.24,.28,.3,.32],
+// rebased with India's population: this was the undivided subcontinent's share (~31% today),
+// not the Republic's (14.2%). It renders Eaton's finding for free, that the imperial heartland
+// barely converts under six centuries of Muslim rule while both frontiers convert wholesale.
+"India":             [0,0,0,0,0,0,.002,.004,.015,.04,.05,.07,.085,.1,.11,.128,.1,.131,.152],
 "Central Asia":      [0,0,0,0,0,0,.3,.6,.7,.9,.92,.93,.94,.94,.94,.9,.7,.85,.88],
 "China":             [0,0,0,0,0,0,.002,.005,.01,.015,.015,.015,.015,.015,.015,.015,.014,.015,.015],
 "Korea & Japan":     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-"Southeast Asia":    [0,0,0,0,0,0,0,.005,.02,.15,.25,.3,.35,.38,.39,.4,.4,.42,.42],
 "North America":     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.005,.01,.012],
 "Mesoamerica & Caribbean": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.002,.002],
 "South America":     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.002,.003,.003],
 "Oceania":           [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.005,.02,.026]
 };
+// Buddhist share at the same anchors. Unlike ISLAM_SHARES this does not start at zero:
+// Buddhism is roughly five centuries old at AD 33, already established across the Gangetic
+// plain, Sri Lanka and Gandhara, so the table opens mid-history and the story it tells is
+// mostly one of retreat. "Share" here is affiliation and practice, not an exclusive creed
+// count; see README for the syncretism and dual-affiliation caveats (China, Japan, Vietnam).
+const BUDDHIST_SHARES = {
+"India":              [.12,.18,.24,.26,.27,.22,.15,.09,.03,.005,.003,.002,.002,.001,.001,.001,.001,.007,.007],
+"Central Asia":       [.15,.3,.35,.3,.35,.4,.25,.12,.05,.01,.005,.005,.02,.004,.003,.003,.002,.002,.002],
+"China":              [0,.001,.01,.04,.12,.3,.35,.2,.22,.2,.2,.2,.2,.2,.2,.2,.18,.12,.15],
+"Korea & Japan":      [0,0,0,0,.02,.12,.4,.55,.65,.6,.55,.55,.62,.62,.62,.5,.48,.42,.35],
+"Persia":             [0,.003,.008,.01,.01,.008,.003,.001,0,0,0,0,0,0,0,0,0,0,0],
+"Mainland Southeast Asia": [.005,.01,.03,.08,.15,.3,.4,.45,.6,.75,.8,.82,.82,.82,.82,.8,.78,.73,.72],
+"Maritime Southeast Asia": [0,.01,.02,.04,.06,.12,.25,.25,.25,.15,.08,.02,.01,.008,.008,.012,.02,.03,.03],
+"Philippines":        [0,0,0,0,0,0,.002,.005,.005,.005,.003,0,0,0,0,.001,.002,.002,.002],
+"Sri Lanka":          [.7,.75,.8,.8,.85,.85,.85,.75,.8,.78,.76,.72,.7,.68,.64,.6,.64,.69,.7],
+"Tibet & Bhutan":     [0,0,0,.005,.01,.05,.6,.5,.75,.8,.85,.88,.9,.9,.9,.9,.85,.75,.75],
+"Nepal":              [.25,.25,.25,.25,.3,.3,.3,.3,.3,.3,.28,.25,.2,.15,.12,.1,.09,.085,.08],
+"Mongolia":           [0,0,0,0,0,0,.002,.005,.02,.05,.05,.4,.8,.9,.9,.9,.1,.45,.52],
+"Netherlands":        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0005,.003,.005],
+"Belgium & Luxembourg":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0003,.002,.003],
+"Pakistan":           [.18,.25,.3,.28,.22,.14,.06,.015,.003,.001,0,0,0,0,0,0,0,0,0],
+"Bangladesh":         [.08,.1,.14,.18,.22,.28,.35,.35,.18,.05,.02,.01,.008,.007,.007,.006,.007,.007,.006],
+"Rus & Russia":       [0,0,0,0,0,0,0,0,0,0,0,0,.01,.006,.006,.005,.001,.004,.005],
+"Italy":              [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0005,.002,.003],
+"Britain & Ireland":  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0005,.003,.005],
+"France":             [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0005,.005,.007],
+"Central Europe":     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0005,.003,.004],
+"Scandinavia":        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.0005,.003,.005],
+"North America":      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.002,.008,.011],
+"South America":      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.001,.002,.002],
+"Oceania":            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,.003,.001,.015,.02]
+};
+
+// Share of each region's population living in settlements of 5,000 or more. That threshold
+// is a choice, not a standard, and it is the largest single source of error here: the same
+// England in 1800 is 20.3%, 27.5% or 33.8% urban depending only on whether the cut is 10,000,
+// 5,000 or 2,500. Bairoch's 5,000 is the spine; de Vries's 10,000 series was converted per
+// territory, and the UN's post-1950 national definitions are not comparable across countries
+// at all. See README before reading anything into a single figure.
+const URBAN_SHARES = {
+"Levant":            [.2,.22,.22,.22,.21,.17,.16,.17,.18,.14,.15,.16,.16,.15,.16,.2,.41,.69,.83],
+"Anatolia":          [.18,.2,.2,.2,.22,.2,.1,.12,.14,.1,.14,.19,.18,.17,.17,.17,.16,.59,.89],
+"Egypt":             [.25,.27,.24,.22,.2,.16,.16,.2,.22,.2,.2,.18,.17,.15,.18,.19,.31,.43,.43],
+"Maghreb":           [.15,.2,.22,.2,.18,.12,.1,.15,.17,.14,.14,.13,.12,.11,.12,.16,.27,.6,.72],
+"Greece & Balkans":  [.12,.14,.14,.13,.12,.1,.05,.07,.09,.08,.09,.1,.1,.11,.12,.16,.3,.59,.63],
+"Italy":             [.32,.33,.3,.25,.18,.07,.06,.09,.16,.14,.21,.22,.21,.22,.26,.37,.55,.67,.7],
+"Iberia":            [.13,.16,.16,.14,.12,.08,.08,.19,.17,.12,.12,.17,.14,.18,.23,.33,.46,.72,.77],
+"France":            [.08,.1,.1,.09,.08,.05,.04,.05,.09,.09,.09,.11,.14,.13,.19,.3,.55,.77,.79],
+"Britain & Ireland": [.01,.05,.05,.05,.04,.005,.01,.02,.06,.06,.05,.08,.15,.25,.36,.67,.78,.79,.82],
+"Central Europe":    [.01,.03,.04,.05,.04,.02,.02,.03,.08,.09,.1,.12,.13,.14,.22,.45,.65,.78,.83],
+"Scandinavia":       [.002,.002,.002,.002,.003,.005,.005,.01,.02,.03,.03,.04,.07,.08,.11,.25,.58,.79,.85],
+"Rus & Russia":      [.002,.002,.002,.002,.002,.003,.01,.03,.05,.03,.04,.05,.06,.07,.09,.14,.41,.72,.74],
+"Poland & Baltics":  [.002,.002,.002,.002,.002,.003,.005,.01,.02,.03,.04,.04,.04,.06,.08,.22,.39,.63,.61],
+"Mesopotamia":       [.2,.2,.22,.22,.22,.22,.3,.18,.12,.09,.1,.11,.11,.11,.13,.2,.35,.68,.7],
+"Persia":            [.1,.11,.12,.14,.15,.15,.16,.2,.2,.12,.14,.18,.16,.12,.13,.16,.28,.65,.77],
+"Caucasus":          [.06,.07,.08,.08,.08,.08,.09,.1,.12,.06,.07,.08,.09,.08,.11,.18,.4,.54,.61],
+"Arabia":            [.06,.06,.05,.05,.05,.05,.07,.07,.07,.07,.07,.07,.07,.05,.05,.06,.09,.56,.65],
+"Ethiopia & Horn":   [.02,.03,.03,.03,.03,.03,.02,.02,.02,.02,.02,.02,.03,.03,.03,.04,.07,.18,.28],
+"Nubia & Sudan":     [.05,.06,.06,.05,.04,.04,.05,.05,.05,.04,.04,.05,.06,.05,.05,.06,.06,.29,.32],
+"West Africa":       [.02,.02,.03,.03,.03,.04,.05,.06,.07,.08,.09,.09,.1,.11,.13,.11,.11,.42,.6],
+"Central Africa":    [.005,.005,.005,.005,.005,.01,.01,.01,.01,.02,.03,.03,.03,.03,.03,.03,.15,.4,.52],
+"East Africa":       [.005,.005,.005,.005,.005,.01,.01,.02,.02,.03,.02,.02,.02,.02,.03,.03,.04,.18,.34],
+"Southern Africa":   [.002,.002,.002,.002,.003,.005,.005,.008,.01,.01,.01,.01,.01,.01,.03,.11,.25,.45,.52],
+"India":             [.1,.11,.11,.1,.11,.1,.1,.1,.11,.1,.11,.13,.11,.1,.1,.1,.16,.28,.36],
+"Central Asia":      [.1,.11,.11,.1,.1,.12,.14,.18,.2,.08,.11,.11,.1,.08,.09,.14,.33,.46,.49],
+"China":             [.11,.12,.1,.09,.08,.11,.13,.15,.2,.1,.09,.09,.08,.07,.06,.06,.11,.36,.66],
+"Korea & Japan":     [.01,.02,.02,.03,.03,.05,.06,.06,.06,.06,.07,.1,.12,.12,.12,.17,.31,.77,.86],
+"North America":     [.005,.005,.005,.005,.005,.005,.008,.01,.012,.005,.005,.005,.008,.04,.12,.36,.64,.79,.81],
+"Mesoamerica & Caribbean": [.04,.05,.06,.07,.07,.08,.06,.04,.05,.06,.08,.07,.1,.11,.12,.16,.42,.71,.77],
+"South America":     [.01,.01,.02,.02,.02,.03,.03,.03,.03,.03,.03,.04,.05,.07,.1,.21,.44,.81,.87],
+"Oceania":           [.002,.002,.002,.002,.002,.002,.002,.002,.002,.002,.002,.002,.003,.005,.06,.42,.63,.71,.69],
+"Mainland Southeast Asia": [.02,.02,.03,.03,.03,.04,.04,.05,.07,.05,.05,.06,.06,.05,.05,.07,.11,.27,.44],
+"Maritime Southeast Asia": [.01,.01,.01,.02,.02,.03,.03,.03,.03,.04,.05,.07,.06,.04,.04,.06,.13,.44,.61],
+"Philippines":       [.005,.005,.005,.005,.005,.005,.01,.01,.01,.02,.02,.04,.04,.05,.06,.11,.25,.39,.56],
+"Sri Lanka":         [.05,.06,.06,.06,.07,.07,.07,.05,.06,.04,.04,.04,.04,.04,.06,.11,.15,.16,.21],
+"Tibet & Bhutan":    [.01,.01,.01,.01,.01,.02,.04,.03,.04,.04,.04,.05,.05,.05,.05,.04,.04,.14,.4],
+"Nepal":             [.005,.005,.005,.005,.005,.01,.02,.02,.03,.03,.03,.04,.04,.04,.04,.03,.03,.16,.43],
+"Mongolia":          [.01,.01,.01,.01,.01,.01,.03,.01,.02,.02,.02,.02,.02,.03,.04,.05,.2,.57,.71],
+"Netherlands":       [.01,.03,.03,.03,.02,.01,.02,.02,.05,.17,.21,.29,.37,.33,.34,.55,.56,.77,.84],
+"Belgium & Luxembourg":[.02,.04,.05,.04,.03,.01,.02,.03,.1,.26,.29,.25,.32,.27,.3,.52,.63,.96,.97],
+"Pakistan":          [.1,.11,.12,.12,.12,.1,.1,.12,.14,.12,.13,.15,.13,.09,.09,.105,.18,.33,.39],
+"Bangladesh":        [.02,.02,.03,.03,.04,.04,.05,.05,.05,.06,.07,.07,.1,.05,.035,.024,.043,.24,.4]
+};
+const URBAN_DEFAULT = [.01,.01,.01,.01,.01,.01,.01,.01,.02,.02,.02,.02,.02,.02,.03,.05,.12,.35,.5];
+
 const ZERO19 = new Array(19).fill(0);
+// One merge per dataset. ZERO19 is shared by every region that has no row, so nothing may
+// ever mutate a share array in place.
 REGIONS.forEach(r => r.si = r.si || ISLAM_SHARES[r.n] || ZERO19);
+REGIONS.forEach(r => r.sb = r.sb || BUDDHIST_SHARES[r.n] || ZERO19);
+// Urbanisation is never zero, so city and diaspora overlays fall back to a modern-urban
+// default rather than to ZERO19, which would read as uninhabited countryside.
+REGIONS.forEach(r => r.u = r.u || URBAN_SHARES[r.n] || URBAN_DEFAULT);
 
 // City markers: [name, lon, lat, activation year]
 const CITIES = [
@@ -635,13 +817,19 @@ const EVENTS = [
 [1517,"Reformation"],[1683,"Siege of Vienna"],[1910,"World missions"]
 ];
 
-// Ocean crossings for the simulation: [fromLon,fromLat, toLon,toLat, openYear, religion]
+// Ocean crossings for the simulation: [fromLon,fromLat, toLon,toLat, openYear, datasetId]
 const ROUTES = [
-[-6,37, -70,19, 1493,'c'],[-9.1,38.7, -43.2,-22.9, 1500,'c'],[-9.1,38.7, 76.3,10, 1498,'c'],
-[-0.1,51.5, -71.1,42.4, 1607,'c'],[-99.1,19.4, 121,14.6, 1565,'c'],[4,51, 18.4,-33.9, 1652,'c'],
-[-0.1,51.5, 151.2,-33.9, 1788,'c'],
+[-6,37, -70,19, 1493,'chr'],[-9.1,38.7, -43.2,-22.9, 1500,'chr'],[-9.1,38.7, 76.3,10, 1498,'chr'],
+[-0.1,51.5, -71.1,42.4, 1607,'chr'],[-99.1,19.4, 121,14.6, 1565,'chr'],[4,51, 18.4,-33.9, 1652,'chr'],
+[-0.1,51.5, 151.2,-33.9, 1788,'chr'],
 // Islam: Yemen to the Swahili coast, Arabia to Java via Indian Ocean traders
-[44.1,17.5, 39.3,-6.8, 900,'m'],[46.7,24.7, 106.8,-6.2, 1250,'m']
+[44.1,17.5, 39.3,-6.8, 900,'isl'],[46.7,24.7, 106.8,-6.2, 1250,'isl'],
+// Buddhism: the Silk Road into China, the Sri Lanka and Suvarnabhumi sea routes, the
+// transmissions to Korea (372) and Japan (552), and the Nepal-Tibet route (c. 640)
+[72.8,33.7, 75.9,39.5, 67,'bud'],[75.9,39.5, 94.7,40.1, 120,'bud'],[94.7,40.1, 112.4,34.7, 200,'bud'],
+[85.0,24.7, 80.4,8.3, 33,'bud'],[80.4,8.3, 96.2,17.0, 400,'bud'],
+[112.4,34.7, 127.0,37.6, 372,'bud'],[127.0,37.6, 135.8,34.7, 552,'bud'],
+[85.3,27.7, 91.1,29.7, 640,'bud']
 ];
 
 /* ============ grid + geometry ============ */
@@ -719,9 +907,39 @@ REGIONS.forEach((reg, ri) => {
     for (let k = 0; k < w.length; k++) w[k] /= (sum || 1);
     SPLATS.push({ ri, pw, y0: y0 || 0, cells, w });
     APTS.push({ ri, pw, y0: y0 || 0, lon, lat, sigDeg: sigma * 2,
-                landFrac: sumAll > 0 ? Math.max(0.05, sum / sumAll) : 1 });
+                landFrac: sumAll > 0 ? Math.max(0.05, sum / sumAll) : 1, sea: null });
   }
 });
+// How much open water lies between each weight point and each 2-degree cell around it.
+// A region's people are not distributed across the sea, so its opinion should not cross one
+// either: Italy held a fifth of the share weight over Tunis, and Anatolia more than a quarter
+// over Athens, purely because a gaussian does not know where the coast is. Computed once at
+// load — five samples along the segment for every cell within 25 degrees — because doing it
+// per pixel per frame would cost more than the field build it corrects. About 2.7 MB total.
+(function buildSeaMasks() {
+  const REACH = 12;                                  // 25 degrees, in 2-degree cells
+  for (const pt of APTS) {
+    const m = new Uint8Array(NCELL).fill(255);
+    const cgx = Math.floor((pt.lon + 180) / 2), cgy = Math.floor((90 - pt.lat) / 2);
+    for (let dy = -REACH; dy <= REACH; dy++) {
+      const gy = cgy + dy; if (gy < 0 || gy >= GH) continue;
+      for (let dx = -REACH; dx <= REACH; dx++) {
+        const gx = (cgx + dx + GW) % GW;
+        const clon = gx * 2 - 179, clat = 89 - gy * 2;
+        let land = 0;
+        for (let k = 1; k < 5; k++) {
+          const t = k / 5;
+          const sx = Math.min(GW - 1, Math.max(0, Math.floor((pt.lon + (clon - pt.lon) * t + 180) / 2)));
+          const sy = Math.min(GH - 1, Math.max(0, Math.floor((90 - (pt.lat + (clat - pt.lat) * t)) / 2)));
+          if (LAND[sy * GW + sx]) land++;
+        }
+        m[gy * GW + gx] = Math.round(255 * (land / 4));
+      }
+    }
+    pt.sea = m;
+  }
+})();
+
 // weight of a point at a given year: 0 before founding, ramping to full over 60 years
 function ptWeight(sp, year) {
   if (!sp.y0) return sp.pw;
@@ -745,41 +963,52 @@ function interp(arr, year) {
 }
 
 const densF = new Float32Array(NCELL);
-const shareNumC = new Float32Array(NCELL);
-const shareNumM = new Float32Array(NCELL);
-const histShareC = new Float32Array(NCELL);
-const histShareM = new Float32Array(NCELL);
 let densMax = 1;
 
-function buildFields(year) {
-  densF.fill(0); shareNumC.fill(0); shareNumM.fill(0);
+// Accumulates the 2-degree population field and, for every registry entry, its
+// population-weighted share numerator (ds.shareNum) and the resulting share (ds.hist).
+// DATASETS is declared below with the simulation and read here at call time.
+//
+// INVARIANT: densF, regWeightSum and every ds.shareNum are shared scratch. Every consumer
+// copies out what it needs in the same synchronous block, which is what makes it safe for
+// the draw path and the simulation to share them. This breaks the moment anyone chunks
+// buildFields or buildViewField across animation frames.
+const _fieldSh = [];
+// `shares` false builds only the density field, which is all the draw path wants from this:
+// it takes densMax and nothing else. The share numerators are read by the simulation alone,
+// and building them every frame cost a full pass per dataset for nobody.
+function buildFields(year, shares = true) {
+  const N = DATASETS.length;
+  densF.fill(0);
+  if (shares) for (const ds of DATASETS) ds.shareNum.fill(0);
   buildRegWeights(year);
   for (const sp of SPLATS) {
     const pw = ptWeight(sp, year);
     if (pw <= 0 || regWeightSum[sp.ri] <= 0) continue;
     const reg = REGIONS[sp.ri];
     const pop = interp(reg.p, year) * pw / regWeightSum[sp.ri];
-    const shC = interp(reg.s, year);
-    const shM = interp(reg.si, year);
     const { cells, w } = sp;
+    if (!shares) {
+      for (let k = 0; k < cells.length; k++) densF[cells[k]] += pop * w[k];
+      continue;
+    }
+    for (let n = 0; n < N; n++) _fieldSh[n] = interp(reg[DATASETS[n].key], year);
     for (let k = 0; k < cells.length; k++) {
-      const add = pop * w[k];
-      densF[cells[k]] += add;
-      shareNumC[cells[k]] += add * shC;
-      shareNumM[cells[k]] += add * shM;
+      const add = pop * w[k], ci = cells[k];
+      densF[ci] += add;
+      for (let n = 0; n < N; n++) DATASETS[n].shareNum[ci] += add * _fieldSh[n];
     }
   }
   densMax = 1e-9;
   for (let i = 0; i < NCELL; i++) {
     const d = densF[i];
-    histShareC[i] = d > 1e-6 ? shareNumC[i] / d : 0;
-    histShareM[i] = d > 1e-6 ? shareNumM[i] / d : 0;
+    if (shares) for (const ds of DATASETS) ds.hist[i] = d > 1e-6 ? ds.shareNum[i] / d : 0;
     if (d > densMax) densMax = d;
   }
 }
 
 // Per-region decline pressure (fraction of community lost per year), from anchor drops.
-// key is 's' (Christianity) or 'si' (Islam), so each faith feels its own collapse eras.
+// key is the dataset's own share key, so each faith feels its own collapse eras.
 function pressureOf(ri, year, key) {
   const s = REGIONS[ri][key];
   if (year >= ANCHORS[ANCHORS.length-1]) return 0;
@@ -809,53 +1038,168 @@ function buildPressure(year, key) {
 /* ============ simulation ============ */
 const SIM_DT = 2, SNAP_EVERY = 8;
 const NSNAP = Math.floor(SIM_YSPAN / SNAP_EVERY) + 2;
-let simReady = false, simToken = 0;
-const params = { growth: 1, spread: 1, urban: 0.55, decline: 1, blend: 0.8, mode: 'pop', frontier: 'blend' };
+// `densExp` was named `urban` until urbanisation became an actual dataset. It is the
+// exponent on the population-density weighting, nothing to do with the urban share.
+const params = { growth: 1, spread: 1, densExp: 0.55, decline: 1, blend: 0.8, mode: 'pop', frontier: 'blend' };
 // contested-band ratios (issue #8): a cell blends purple only when the larger share is
 // within RxN of the smaller; otherwise the winner takes full color. Blend mode keeps a wide
 // band (lopsided cells like 10%/60% now read as the majority); majority mode narrows it to
 // near-parity so frontiers render as battle lines.
 const R_BLEND = 4.5, R_MAJ = 1.5;
-const layers = { c: true, m: true };
-// one sim pass per religion: share key, seed cell/year, snapshot buffer, routes
-const SIMS = [
-  { key: 's',  seeds: [[cellOf(35.2, 31.8), .005]], seedYear: 33,  snaps: new Uint8Array(NSNAP * NCELL) },
-  { key: 'si', seeds: [[cellOf(39.8, 21.4), .02], [cellOf(39.6, 24.5), .02]], seedYear: 622, snaps: new Uint8Array(NSNAP * NCELL) }
+
+/* ============ the dataset registry ============ */
+// One entry per population type. Adding a population type means adding an entry here and a
+// share table on REGIONS: the fields, the simulation, the renderer, the legend and the
+// tables all read this rather than naming datasets. `kind` discriminates:
+//   'faith'    a mutually exclusive share of one population. Faiths contest each other for
+//              the hue channel, and each gets its own diffusion pass.
+//   'measure'  an independent metric of that same population, also expressed as a share of
+//              it (0-1). Cannot contest, has no diffusion pass, carries no seeds.
+// Authored: id, kind, label, key (the 19-anchor array on each REGIONS entry), ramp, on,
+// plus seedYear/seeds for faiths. Derived at boot: lut, shareNum, hist, viewNum, and for
+// faiths snaps/token/ready.
+// Sequential ramps, low -> high, per theme (fillLUT reverses them for dark).
+// Blue = Christianity (validated reference palette); red = Islam (same lightness march).
+const RAMP = ['#cde2fb','#b7d3f6','#9ec5f4','#86b6ef','#6da7ec','#5598e7','#3987e5','#2a78d6','#256abf','#1c5cab','#184f95','#104281','#0d366b'];
+const RAMP_RED = ['#fcdcd6','#f8c8c0','#f4b4aa','#efa095','#e98c80','#e2776b','#d96256','#cf4c45','#bc3e3b','#a53431','#8b2b29','#712222','#591b1b'];
+// Buddhism is teal, not saffron. Saffron is the culturally obvious choice and it is
+// unavailable: to a deuteranope saffron and this red are the same colour. Teal was picked by
+// simulating protanopia and deuteranopia over the whole hue circle at matched lightness and
+// scoring every candidate against both existing ramps; it holds dE 21.5 against blue and 23.2
+// against red, the most balanced survivor. See README.
+// Urbanisation fills the map on its own ramp while the faiths collapse to frontier lines
+// over it, so it never competes with a faith hue at the same lightness in the same role.
+// Diverging, loss -> no change -> gain, for the compare view. It cannot be theme-reversed
+// the way a sequential ramp can, because reversing would swap gain and loss, so there is one
+// array per theme. Hue alone carries the sign: loss violet, gain green. Lightness cannot,
+// because the alpha ramp is V-shaped and makes the midpoint invisible on purpose.
+const RAMP_DIV_LIGHT = ['#685fc8','#6c61b8','#6e64a9','#6f669a','#6f688b','#6f6b7c','#6d6d6d','#647162','#5a7456','#4e774b','#417a3f','#2f7c32','#137e23'];
+const RAMP_DIV_DARK  = ['#b3a3ff','#b4a6f9','#b4a8ea','#b4aadc','#b4accd','#b2aebf','#b0b0b0','#a8b4a6','#9eb79b','#94ba90','#8abd84','#7ec079','#71c36d'];
+let LUT_DIV = new Uint8ClampedArray(256 * 4);
+// "Nothing is committed here": a warm grey hued toward --land rather than a true grey, so it
+// reads as absence rather than as a fourth category. Used for the confidence wash and for
+// regions whose actual majority the model does not carry.
+const RAMP_NONE = ['#e6dfd9','#d6cfca','#c8c0bb','#b8b1ac','#a9a29e','#9b948f','#8c8580','#7d7772','#6f6965','#625c57','#554f4a','#48423e','#3b3632'];
+let LUT_NONE = new Uint8ClampedArray(256 * 4);
+const RAMP_URBAN = ['#fbd9c5','#f4c8ab','#efb690','#e6a477','#de925c','#d48143','#cb6e22','#ba5f0f','#a6540b','#934802','#803d01','#6e3200','#5b2900'];
+const RAMP_TEAL = ['#bde8ed','#9ddbe3','#77cfda','#4ac2d0','#00b6c7','#00a9bd','#009cb5','#008ea6','#007e94','#006f83','#006072','#005162','#004351'];
+const DATASETS = [
+  { id: 'chr', kind: 'faith', label: 'Christianity', key: 's',  ramp: RAMP,     on: true,
+    adj: 'Christian', people: 'Christians', hue: 'blue',
+    seedYear: 33,  seeds: [[cellOf(35.2, 31.8), .005]] },
+  { id: 'isl', kind: 'faith', label: 'Islam',        key: 'si', ramp: RAMP_RED, on: true,
+    adj: 'Muslim', people: 'Muslims', hue: 'red',
+    seedYear: 622, seeds: [[cellOf(39.8, 21.4), .02], [cellOf(39.6, 24.5), .02]] },
+  // Buddhism is already ~5 centuries old at the first anchor, so unlike the other two its
+  // share table does not start at zero and its seeds are its AD 33 heartlands rather than a
+  // point of origin: Magadha, Gandhara and Anuradhapura. On by default, which means the
+  // default map uses the stripe rather than the two-faith blend for contested ground.
+  { id: 'bud', kind: 'faith', label: 'Buddhism',     key: 'sb', ramp: RAMP_TEAL, on: true,
+    adj: 'Buddhist', people: 'Buddhists', hue: 'teal',
+    seedYear: 33,  seeds: [[cellOf(85.0, 24.7), .25], [cellOf(72.8, 33.7), .2], [cellOf(80.4, 8.3), .4]] },
+  // A measure is an independent metric of the same population, not a rival for it. It is
+  // constrained to be a share of local population (0-1) so it drops straight into the
+  // existing share pipeline, and it carries no seeds because it has nothing to diffuse.
+  { id: 'urb', kind: 'measure', label: 'Urban population', key: 'u', ramp: RAMP_URBAN, on: false,
+    adj: 'urban', people: 'Urban population', hue: 'amber',
+    note: 'settlements of 5,000+' },
 ];
+const DS = id => DATASETS.find(d => d.id === id);
+const faiths = () => DATASETS.filter(d => d.kind === 'faith');
+const activeFaiths = () => DATASETS.filter(d => d.kind === 'faith' && d.on);
+for (const ds of DATASETS) {
+  ds.lut = new Uint8ClampedArray(256 * 4);
+  ds.shareNum = new Float32Array(NCELL);
+  ds.hist = new Float32Array(NCELL);
+  ds.viewNum = null;                                  // sized by ensureViewBuffers
+  if (ds.kind === 'faith') {
+    ds.snaps = new Uint8Array(NSNAP * NCELL);         // ~3.9 MB per faith
+    ds.token = 0; ds.ready = false;
+  }
+}
+
+// "a and b" / "a, b and c" — used by every generated label that enumerates datasets.
+const listOf = xs => xs.length < 2 ? (xs[0] || '')
+  : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1];
+
+// Faiths are mutually exclusive shares of one population, so they cannot sum above 1 in any
+// region at any anchor. Nothing enforced that while there were only two whose union was
+// usually well under 1; a third makes it matter, because the renderer's dominance test would
+// start asserting a leader in a region whose real majority is something we do not model.
+// This reports to the author's console rather than the user's screen: it is a check on the
+// data, not a caveat about it.
+function validateShares() {
+  const bad = [];
+  for (const reg of REGIONS)
+    for (let i = 0; i < ANCHORS.length; i++) {
+      let sum = 0;
+      for (const ds of faiths()) sum += (reg[ds.key] || ZERO19)[i] || 0;
+      if (sum > 1.001) bad.push(reg.n + ' @ ' + ANCHORS[i] + ': ' + sum.toFixed(3));
+    }
+  if (bad.length)
+    console.warn('[data] ' + bad.length + ' region-anchor cells have faith shares summing over 1:\n  '
+                 + bad.join('\n  '));
+  return bad;
+}
+
 const routeCells = ROUTES.map(r => [cellOf(r[0], r[1]), cellOf(r[2], r[3]), r[4], r[5]]);
 
-function runSimulation() {
-  const token = ++simToken;
-  simReady = false;
+// Diffusion passes run one at a time, never concurrently. They are not safe to interleave:
+// buildPressure fills the single module-level pressF and the loop refreshes it every 24
+// sim-years, while a rAF chunk covers 120, so two passes sharing frames would apply each
+// other's decline eras for stretches at a time. Silent, non-deterministic, and only visible
+// in the years where two faiths' collapse eras differ, which is the whole point of the
+// model. The queue keeps exactly one pass in flight.
+const simQueue = [];
+let simBusy = false, simDone = 0;
+function enqueueSim(ds) {
+  if (ds.kind !== 'faith' || simQueue.includes(ds)) return;
+  ds.ready = false;
+  simQueue.push(ds);
+  if (!simBusy) runNextSim();
+}
+function runNextSim() {
+  const ds = simQueue[0];
+  if (!ds) {
+    simBusy = false; simDone = 0;
+    document.getElementById('simStatus').textContent = '';
+    needsRedraw = true;
+    return;
+  }
+  simBusy = true;
+  runSimulation(ds);
+}
+// Re-run every visible faith, e.g. after a parameter slider moves.
+function resimAll() {
+  simQueue.length = 0; simDone = 0; simBusy = false;
+  for (const ds of activeFaiths()) enqueueSim(ds);
+}
+
+function runSimulation(ds) {
+  const token = ++ds.token;
+  ds.ready = false;
   const status = document.getElementById('simStatus');
   const c = new Float32Array(NCELL), c2 = new Float32Array(NCELL);
   const suit = new Float32Array(NCELL);
   const capF = new Float32Array(NCELL);
-  let simIdx = 0, year = 0, snapIdx = 0, nextFieldRefresh = 0;
+  let year = SIM_Y0, snapIdx = 0, nextFieldRefresh = SIM_Y0;
+  ds.snaps.fill(0);
 
-  function beginPass() {
-    const sim = SIMS[simIdx];
-    c.fill(0); c2.fill(0);
-    sim.snaps.fill(0);
-    year = SIM_Y0; snapIdx = 0; nextFieldRefresh = SIM_Y0;
-  }
   function saveSnap() {
-    const off = snapIdx * NCELL, snaps = SIMS[simIdx].snaps;
+    const off = snapIdx * NCELL, snaps = ds.snaps;
     for (let i = 0; i < NCELL; i++) snaps[off + i] = Math.min(255, Math.round(c[i] * 255));
     snapIdx++;
   }
   function step() {
-    if (token !== simToken) return; // superseded by newer run
-    const sim = SIMS[simIdx];
-    const rel = sim.key === 's' ? 'c' : 'm';
+    if (token !== ds.token) return; // superseded by newer run
     const until = Math.min(SIM_Y1, year + 120);
     while (year < until) {
-      if (year === sim.seedYear || (year < sim.seedYear && year + SIM_DT > sim.seedYear)) {
-        for (const [sc, sv] of sim.seeds) c[sc] = Math.max(c[sc], sv);
+      if (year === ds.seedYear || (year < ds.seedYear && year + SIM_DT > ds.seedYear)) {
+        for (const [sc, sv] of ds.seeds) c[sc] = Math.max(c[sc], sv);
       }
       if (year >= nextFieldRefresh) {
-        buildFields(year); buildPressure(year, sim.key);
-        const hist = sim.key === 's' ? histShareC : histShareM;
+        buildFields(year); buildPressure(year, ds.key);
+        const hist = ds.hist;
         for (let k = 0; k < domainCells.length; k++) {
           const i = domainCells[k];
           suit[i] = LAND[i] ? Math.pow(densF[i] / densMax, 0.35) + 0.015 : 0;
@@ -864,7 +1208,7 @@ function runSimulation() {
         }
         nextFieldRefresh = year + 24;
       }
-      if (year >= sim.seedYear) {
+      if (year >= ds.seedYear) {
         const r = 0.035 * params.growth, D = 0.06 * params.spread;
         const oceanKeep = Math.pow(0.82, SIM_DT);
         for (let k = 0; k < domainCells.length; k++) {
@@ -890,40 +1234,34 @@ function runSimulation() {
           c2[i] = v < 1e-7 ? 0 : Math.min(1, v);
         }
         for (let k = 0; k < domainCells.length; k++) { const i = domainCells[k]; c[i] = c2[i]; }
-        // dated ocean routes for this religion
+        // dated ocean routes for this dataset
         for (const [a, b, ry, tag] of routeCells) {
-          if (tag === rel && year >= ry) c[b] = Math.min(1, c[b] + SIM_DT * 0.012 * params.spread * c[a] * (1 - c[b]));
+          if (tag === ds.id && year >= ry) c[b] = Math.min(1, c[b] + SIM_DT * 0.012 * params.spread * c[a] * (1 - c[b]));
         }
       }
       while (year + SIM_DT > SIM_Y0 + snapIdx * SNAP_EVERY && snapIdx < NSNAP) saveSnap();
       year += SIM_DT;
     }
     if (year < SIM_Y1) {
-      const frac = (simIdx + (year - SIM_Y0) / SIM_YSPAN) / SIMS.length;
+      const frac = (simDone + (year - SIM_Y0) / SIM_YSPAN) / (simDone + simQueue.length);
       status.textContent = 'computing model… ' + Math.round(100 * frac) + '%';
       requestAnimationFrame(step);
     } else {
       while (snapIdx < NSNAP) saveSnap();
-      simIdx++;
-      if (simIdx < SIMS.length) { beginPass(); requestAnimationFrame(step); return; }
-      simReady = true;
-      status.textContent = '';
+      ds.ready = true;
+      simDone++;
+      simQueue.shift();
       needsRedraw = true;
+      runNextSim();
     }
   }
-  beginPass();
   step();
-}
-function simShareAt(snaps, i, year) {
-  if (!simReady) return 0;
-  const f = Math.min(NSNAP - 1.001, Math.max(0, (year - SIM_Y0) / SNAP_EVERY));
-  const s0 = f | 0, t = f - s0;
-  return (snaps[s0 * NCELL + i] * (1 - t) + snaps[(s0 + 1) * NCELL + i] * t) / 255;
 }
 // bilinear sample of the 2-degree sim grid at an arbitrary lon/lat (phase B: the sim stays
 // coarse; fine-zoom spatial detail comes from the analytic history field)
-function simShareLL(snaps, lon, lat, year) {
-  if (!simReady) return 0;
+function simShareLL(ds, lon, lat, year) {
+  if (!ds.ready) return 0;
+  const snaps = ds.snaps;
   const f = Math.min(NSNAP - 1.001, Math.max(0, (year - SIM_Y0) / SNAP_EVERY));
   const ft = f - (f | 0);
   const o0 = (f | 0) * NCELL, o1 = o0 + NCELL;
@@ -951,34 +1289,67 @@ const ctx = canvas.getContext('2d');
 const fieldCanvas = document.createElement('canvas');
 const fctx = fieldCanvas.getContext('2d');
 const FW = 320;
-let FH = 0, fimg = null, viewDens = null, viewNumC = null, viewNumM = null;
+let FH = 0, fimg = null, viewDens = null, viewWsum = null, cellIdx = null;
+let frontM = null, frontDom = null;
 function ensureViewBuffers() {
   const fh = Math.max(16, Math.round(FW * H / W));
-  if (fh === FH && fimg) return;
+  if (fh === FH && fimg && DATASETS.every(d => d.viewNum)) return;
   FH = fh;
   fieldCanvas.width = FW; fieldCanvas.height = FH;
   fimg = fctx.createImageData(FW, FH);
   viewDens = new Float32Array(FW * FH);
-  viewNumC = new Float32Array(FW * FH);
-  viewNumM = new Float32Array(FW * FH);
+  viewWsum = new Float32Array(FW * FH);
+  frontM = new Float32Array(FW * FH);      // faith margin, for the frontier line
+  frontDom = new Uint8Array(FW * FH);
+  for (const ds of DATASETS) {
+    ds.viewNum = new Float32Array(FW * FH);
+    ds.confNum = new Float32Array(FW * FH);   // population-weighted confidence, same grid
+  }
 }
 // Evaluate the analytic gaussian field on the viewport grid. Mass-conserving anti-aliasing:
 // a point narrower than the current cell size renders with sigma clamped up to ~0.7 cells
 // and amplitude scaled down by the area ratio, so city-scale points dilute honestly at
 // world view and sharpen to their true footprint as the grid refines.
+//
+// BRIGHTNESS and SHARE are weighted differently, and they have to be. Brightness is total
+// population, so it sums raw mass. Share is not: a pixel inside Dearborn sits inside Wayne
+// County and inside North America too, and all three describe the same people at three
+// resolutions. Summing them by mass averages a 50%-Muslim city with a 1%-Muslim continent
+// and renders 25%. So the share weight is mass scaled by how well a region resolves the
+// pixel: 1/sigma^2 favours the finest description present, and occupancy squared stops a
+// region smaller than the render cell from claiming the whole cell, which is what keeps
+// Dearborn from painting itself across Michigan at world view. Measured against each
+// region's own authored figures, this cuts total error from 75 points to 12.
 function buildViewField(year, lon0, latTopV, cw, ch) {
-  viewDens.fill(0); viewNumC.fill(0); viewNumM.fill(0);
+  // only datasets that are actually drawn. A disabled dataset's field is never read, and
+  // accumulating it cost the hottest loop in the app a full pass per pixel for nothing.
+  const live = DATASETS.filter(d => d.on);
+  const N = live.length, nums = live.map(d => d.viewNum), sh = [];
+  const cfs = live.map(d => d.confNum), cf = [], wantConf = showConf;
+  viewDens.fill(0); viewWsum.fill(0);
+  for (const a of nums) a.fill(0);
+  for (const a of cfs) a.fill(0);
   buildRegWeights(year);
   const cs = Math.max(cw, ch);
+  // 2-degree grid column for each field column, so the sea mask is one array index per pixel
+  if (!cellIdx || cellIdx.length !== FW) cellIdx = new Int32Array(FW);
+  for (let i = 0; i < FW; i++)
+    cellIdx[i] = ((Math.floor((lon0 + (i + 0.5) * cw + 180) / 2) % GW) + GW) % GW;
   for (const pt of APTS) {
     const pw = ptWeight(pt, year);
     if (pw <= 0 || regWeightSum[pt.ri] <= 0) continue;
     const reg = REGIONS[pt.ri];
     const pop = interp(reg.p, year) * pw / regWeightSum[pt.ri];
     if (pop <= 0) continue;
-    const shC = interp(reg.s, year), shM = interp(reg.si, year);
+    for (let n = 0; n < N; n++) {
+      sh[n] = interp(reg[live[n].key], year);
+      cf[n] = showConf ? CONF_WEIGHT[confOf(live[n].id, reg.n, year)] : 1;
+    }
     const sig = Math.max(pt.sigDeg, 0.7 * cs);
     const amp = pop * 4 / (2 * Math.PI * sig * sig * pt.landFrac); // mass per 2-deg-cell-equivalent
+    const occ = Math.min(1, pt.sigDeg / sig);          // 1 when fully resolved, < 1 once AA clamps it
+    const shw = occ * occ / (sig * sig);               // share weight per unit mass
+    const sea = pt.sea;                                // precomputed land fraction of the crossing
     const rad = sig * 2.9;
     const i0 = Math.max(0, Math.floor((pt.lon - rad - lon0) / cw));
     const i1 = Math.min(FW - 1, Math.ceil((pt.lon + rad - lon0) / cw));
@@ -989,25 +1360,34 @@ function buildViewField(year, lon0, latTopV, cw, ch) {
     for (let j = j0; j <= j1; j++) {
       const dy = (latTopV - (j + 0.5) * ch) - pt.lat;
       const dy2 = dy * dy, row = j * FW;
+      const rowCell = Math.min(GH - 1, Math.max(0, Math.floor((90 - (latTopV - (j + 0.5) * ch)) / 2))) * GW;
       for (let i = i0; i <= i1; i++) {
         const dx = (lon0 + (i + 0.5) * cw) - pt.lon;
         const g = Math.exp(-(dx * dx + dy2) * inv2s2);
         if (g < 0.008) continue;
-        const d = amp * g;
-        viewDens[row + i] += d;
-        viewNumC[row + i] += d * shC;
-        viewNumM[row + i] += d * shM;
+        // A sea crossing costs share weight, but only past a region's own doorstep: an
+        // island or a coastal strip must not be penalised for the water beside it, or
+        // Colombo reads 22% Buddhist against Sri Lanka's own 70%. Beyond 3 degrees the
+        // attenuation ramps in, cubed, so a narrow strait barely matters and an open sea does.
+        const r2 = dx * dx + dy2;
+        let lf = 1;
+        if (r2 > 9) {
+          const near = Math.min(1, (r2 - 9) / 27);     // full effect past about 6 degrees
+          const land = 0.15 + 0.85 * sea[cellIdx[i] + rowCell] / 255;
+          lf = 1 + near * (land * land * land - 1);
+        }
+        const d = amp * g, ci = row + i, wd = d * shw * lf;
+        viewDens[ci] += d;
+        viewWsum[ci] += wd;
+        for (let n = 0; n < N; n++) nums[n][ci] += wd * sh[n];
+        // the confidence field is another full scattered write per dataset per pixel, so it
+        // is only paid for when the wash is actually being drawn
+        if (wantConf) for (let n = 0; n < N; n++) cfs[n][ci] += wd * cf[n];
       }
     }
   }
 }
 
-// Sequential ramps, low -> high, per theme. Blue = Christianity (validated reference palette);
-// red = Islam (diverging counterpart, same lightness march).
-const RAMP = ['#cde2fb','#b7d3f6','#9ec5f4','#86b6ef','#6da7ec','#5598e7','#3987e5','#2a78d6','#256abf','#1c5cab','#184f95','#104281','#0d366b'];
-const RAMP_RED = ['#fcdcd6','#f8c8c0','#f4b4aa','#efa095','#e98c80','#e2776b','#d96256','#cf4c45','#bc3e3b','#a53431','#8b2b29','#712222','#591b1b'];
-let LUT = new Uint8ClampedArray(256 * 4);
-let LUTM = new Uint8ClampedArray(256 * 4);
 function isDark() {
   const t = document.documentElement.getAttribute('data-theme');
   if (t) return t === 'dark';
@@ -1025,10 +1405,38 @@ function fillLUT(lut, ramp) {
     lut[v*4+3] = Math.round(255 * Math.min(0.95, Math.pow(t, 0.85) * 1.05));
   }
 }
-function buildLUT() { fillLUT(LUT, RAMP); fillLUT(LUTM, RAMP_RED); }
+function buildLUT() {
+  for (const ds of DATASETS) {
+    fillLUT(ds.lut, ds.ramp);
+    // Frontier lines draw in the same mid-ramp stop the legend chip and the population bar
+    // use. The end of the ramp is not it: fillLUT reverses for dark theme, so index 255 there
+    // is the pale end, and a "strongest colour" line came out near-white.
+    ds.lineRGB = hex2rgb(isDark() ? ds.ramp[3] : ds.ramp[9]);
+  }
+  fillLUT(LUT_NONE, RAMP_NONE);
+  // The diverging LUT needs a V-shaped alpha: fillLUT's monotone alpha would put zero
+  // opacity at maximum loss and erase that whole arm of the scale.
+  const stops = (isDark() ? RAMP_DIV_DARK : RAMP_DIV_LIGHT).map(hex2rgb);
+  for (let v = 0; v < 256; v++) {
+    const t = v / 255, x = t * 12, i0 = Math.min(11, x | 0), ft = x - i0;
+    const a = stops[i0], b = stops[i0 + 1];
+    LUT_DIV[v*4]   = a[0] + ft * (b[0] - a[0]);
+    LUT_DIV[v*4+1] = a[1] + ft * (b[1] - a[1]);
+    LUT_DIV[v*4+2] = a[2] + ft * (b[2] - a[2]);
+    LUT_DIV[v*4+3] = Math.round(255 * Math.min(0.95, Math.pow(Math.abs(2 * t - 1), 0.7) * 1.05));
+  }
+}
 
 const K = 150, LOGK = Math.log(1 + K);
-const logT = s => s <= 0 ? 0 : Math.log(1 + K * s) / LOGK;
+const logTexact = s => s <= 0 ? 0 : Math.log(1 + K * s) / LOGK;
+// The pixel loop calls this twice per dataset per pixel, so at four datasets it was a quarter
+// of a million Math.log calls a frame. Indexed by sqrt(share) rather than by share: logT is
+// steepest at the bottom, which is exactly where the early minority communities live, and a
+// linear index would quantise them away. Bottom bin is s = 1e-6; worst-case error is well
+// inside the 1/255 the result is rounded to anyway.
+const LOGT_N = 1024, LOGT_TBL = new Float32Array(LOGT_N + 1);
+for (let k = 0; k <= LOGT_N; k++) LOGT_TBL[k] = logTexact((k / LOGT_N) ** 2);
+const logT = s => s <= 0 ? 0 : LOGT_TBL[(Math.sqrt(s) * LOGT_N) | 0];
 
 // W/H: canvas device px. BH: base map height (world at zoom 1), tied to W so degrees
 // stay square; H may exceed BH in fullscreen (letterboxed world, not stretched).
@@ -1119,7 +1527,9 @@ function updateHUD() {
   // population tally: same visible-viewport pinning, vertically centered on what you can see
   const pop = document.getElementById('popHud');
   if (pop) {
-    const cy = Math.min(Math.max(wrap.top + 60 * sc, vt + vh / 2), wrap.bottom - 60 * sc);
+    // measured, not assumed: the row count follows the number of visible datasets
+    const half = (pop.offsetHeight || 78) / 2 * sc;
+    const cy = Math.min(Math.max(wrap.top + half, vt + vh / 2), wrap.bottom - half);
     pop.style.left = (x - wrap.left) + 'px';
     pop.style.top = (cy - wrap.top) + 'px';
     pop.style.transform = `scale(${sc}) translateY(-50%)`;
@@ -1149,63 +1559,187 @@ function resize() {
 
 function cssVar(name) { return getComputedStyle(document.querySelector('.viz-root')).getPropertyValue(name).trim(); }
 
-const MIXT = 0.02; // both faiths above this share = genuine co-presence, rendered as a blend
+const MIXT = 0.02;  // two faiths both above this share = genuine co-presence, rendered as a blend
+// per-pixel scratch for the top-two scan, sized to the registry so it never reallocates
+const shScr = new Float64Array(16), inScr = new Float64Array(16);
 function draw(year) {
   if (!M().layers.heat) { drawBase(); return; }   // narrative modes render map only (#14)
-  buildFields(year);        // 2-degree pass still supplies densMax (global brightness scale)
+  buildFields(year, false); // 2-degree pass still supplies densMax (global brightness scale)
   ensureViewBuffers();
   // viewport bounds in degrees, small margin against seams at the edges
   const lonSpan = 360 / cam.z * 1.02;
   const latSpan = (H / cam.z) / BH * (LAT_TOP - LAT_BOT) * 1.02;
   const lon0 = cam.lon - lonSpan / 2, latTopV = cam.lat + latSpan / 2;
   const cw = lonSpan / FW, ch = latSpan / FH;
+  const cmpDs = cmpYear !== null ? ensureCompareField(lon0, latTopV, cw, ch) : null;
   buildViewField(year, lon0, latTopV, cw, ch);
 
-  const urb = params.urban, blend = params.blend;
-  const showC = layers.c, showM = layers.m;
-  const snapsC = SIMS[0].snaps, snapsM = SIMS[1].snaps;
+  const urb = params.densExp, blend = params.blend;
+  const act = activeFaiths(), NA = act.length;
+  const nums = act.map(d => d.viewNum), luts = act.map(d => d.lut);
+  const actConf = act.map(d => d.confNum);
+  const R = params.frontier === 'majority' ? R_MAJ : R_BLEND;
+  const majority = params.frontier === 'majority';
+  // Two faiths blend into a shared hue; three or more cannot. The blue-to-red blend sweeps
+  // the whole hue space a third faith would have to occupy, and under dichromacy there is
+  // nowhere left to stand: every candidate third hue measured within a few dE of some
+  // contested blend. So with three or more visible, contest moves off the hue channel and
+  // onto texture. Exactly two visible keeps the original blend, unchanged.
+  const hatch = NA > 2;
+  // A measure fills the map on its own ramp. Faiths cannot also fill it, so they collapse to
+  // their frontier: the line where the top two are closest to parity. MT_LINE is the same
+  // gate the contested band uses, narrowed, so the Frontier control still means something
+  // here (Blend draws a wider border, Majority a hairline).
+  const cmpNum = cmpDs ? cmpDs.viewNum : null;
   const data = fimg.data;
+  const meas = DATASETS.find(d => d.kind === 'measure' && d.on) || null;
+  // 9 means "no contest here". It has to be written every frame, not left from the last one:
+  // pixels that take the empty-cell early-out below never reach the margin code, and a fresh
+  // Float32Array is all zeros — which reads as perfect parity, so every uninhabited pixel
+  // drew itself a textbook frontier. It put a solid blue line along the Arctic coast of
+  // Siberia, across tundra with no population at all.
+  if (meas && frontM) frontM.fill(9);
+  const measNum = meas ? meas.viewNum : null, measLut = meas ? meas.lut : null;
+  const MT_LINE = majority ? 0.04 : 0.09;
+  // Confidence washes the fill toward the neutral: a conjecture reads as barely committed,
+  // an attested figure at full strength. Applied after the hue is chosen, so it never changes
+  // which dataset a cell belongs to, only how loudly the map claims it.
+  const confs = DATASETS.map(d => d.confNum);
+  const washOf = c => showConf ? (1 - c) * 0.75 : 0;
+  const wash = (o, q, w) => {
+    if (w <= 0.003) return;
+    data[o]   += w * (LUT_NONE[q]   - data[o]);
+    data[o+1] += w * (LUT_NONE[q+1] - data[o+1]);
+    data[o+2] += w * (LUT_NONE[q+2] - data[o+2]);
+  };
   for (let idx = 0; idx < FW * FH; idx++) {
     const o = idx * 4;
     const d = viewDens[idx];
-    if (d <= 1e-6 || (!showC && !showM)) {
+    if (d <= 1e-6 || (NA === 0 && !meas && !cmpDs)) {
       data[o] = data[o+1] = data[o+2] = data[o+3] = 0;
       continue;
     }
-    const hC = viewNumC[idx] / d, hM = viewNumM[idx] / d;
     // population-weighted: saturating density factor (cells above ~12% of world max read full strength)
     // per capita: share alone wherever meaningfully inhabited (soft gate keeps empty deserts dark)
+    const sw = viewWsum[idx] > 1e-9 ? viewWsum[idx] : 1;   // share denominator; d stays for brightness
     const densFac = params.mode === 'percap'
       ? Math.min(1, d / (0.02 * densMax))
       : Math.pow(Math.min(1, d / (0.12 * densMax)), urb);
-    // linear shares decide dominance and mixing; log-space blend drives brightness
-    const lonC = lon0 + ((idx % FW) + 0.5) * cw;
-    const latC = latTopV - (((idx / FW) | 0) + 0.5) * ch;
-    const simC = simShareLL(snapsC, lonC, latC, year), simM = simShareLL(snapsM, lonC, latC, year);
-    const sC = showC ? blend * hC + (1 - blend) * simC : 0;
-    const sM = showM ? blend * hM + (1 - blend) * simM : 0;
-    const iC = showC ? (blend * logT(hC) + (1 - blend) * logT(simC)) * densFac : 0;
-    const iM = showM ? (blend * logT(hM) + (1 - blend) * logT(simM)) * densFac : 0;
-    const mn = Math.min(sC, sM), mx = Math.max(sC, sM);
-    const R = params.frontier === 'majority' ? R_MAJ : R_BLEND;
-    if (showC && showM && mn >= MIXT && mx < R * mn) {
-      // contested cell. Blend mode: ramps blended by relative share, gently minority-weighted
-      // (exponent < 1) so a 10-15% minority reads as a tint. Majority mode: a flat 50/50
-      // purple, so the narrow contested band draws the frontier as a line.
-      const rC = Math.pow(sC, 0.75), rM = Math.pow(sM, 0.75);
-      const t = params.frontier === 'majority' ? 0.5 : rM / (rC + rM);
-      const q = Math.min(255, Math.round(Math.max(iC, iM) * 255)) * 4;
-      data[o]   = LUT[q]   + t * (LUTM[q]   - LUT[q]);
-      data[o+1] = LUT[q+1] + t * (LUTM[q+1] - LUT[q+1]);
-      data[o+2] = LUT[q+2] + t * (LUTM[q+2] - LUT[q+2]);
-      data[o+3] = LUT[q+3];
-    } else if (sM > sC) {
-      // winner-take-all below the mix threshold keeps unmixed frontiers crisp
-      const q = Math.min(255, Math.round(iM * 255)) * 4;
-      data[o] = LUTM[q]; data[o+1] = LUTM[q+1]; data[o+2] = LUTM[q+2]; data[o+3] = LUTM[q+3];
+    if (cmpDs) {
+      // Change, not state: the pinned year's share subtracted from this one, on a diverging
+      // ramp whose midpoint is transparent. Density-weighted like everything else, so an
+      // empty desert that swung 40 points still reads faint.
+      const dv = (cmpNum[idx] / d - cmpShare[idx]) * densFac;
+      const q = Math.min(255, Math.max(0, Math.round((dv + 1) * 127.5))) * 4;
+      data[o] = LUT_DIV[q]; data[o+1] = LUT_DIV[q+1];
+      data[o+2] = LUT_DIV[q+2]; data[o+3] = LUT_DIV[q+3];
+      continue;
+    }
+    const ix = idx % FW, iy = (idx / FW) | 0;
+    const lonC = lon0 + (ix + 0.5) * cw;
+    const latC = latTopV - (iy + 0.5) * ch;
+    // Linear shares decide dominance and mixing; log-space blend drives brightness. The two
+    // genuinely disagree in places, and that is deliberate: who leads is a demographic fact,
+    // how bright it reads is a legibility choice. One scan finds the top two and the
+    // brightest, so the cost is linear in the number of visible faiths.
+    let ai = -1, bi = -1, sa = -1, sb = -1, imax = 0, ssum = 0;
+    for (let n = 0; n < NA; n++) {
+      const ds = act[n];
+      const h = nums[n][idx] / sw;
+      const sim = simShareLL(ds, lonC, latC, year);
+      // a faith whose pass has not landed yet reads as pure history, not 20% dim
+      const bl = ds.ready ? blend : 1;
+      const sv = bl * h + (1 - bl) * sim;
+      const iv = (bl * logT(h) + (1 - bl) * logT(sim)) * densFac;
+      shScr[n] = sv; inScr[n] = iv; ssum += sv;
+      if (sv > sa) { sb = sa; bi = ai; sa = sv; ai = n; }
+      else if (sv > sb) { sb = sv; bi = n; }
+      if (iv > imax) imax = iv;
+    }
+    if (meas) {
+      const mq = Math.min(255, Math.round(logT(measNum[idx] / sw) * densFac * 255)) * 4;
+      data[o] = measLut[mq]; data[o+1] = measLut[mq+1];
+      data[o+2] = measLut[mq+2]; data[o+3] = measLut[mq+3];
+      wash(o, mq, washOf(meas.confNum[idx] / sw));
+      // Record the margin; the line itself is drawn in a second pass below. Thresholding the
+      // margin directly does not give a line, it gives a region: across the Sahel the two
+      // faiths sit near parity for thousands of kilometres, so any fixed cutoff paints the
+      // whole band. sb >= MIXT is mandatory, not tidiness — the margin is a ratio and is
+      // meaningless where both shares approach zero, which is most of the map.
+      frontM[idx] = (bi >= 0 && sb >= MIXT) ? (sa - sb) / (sa + sb) : 9;
+      frontDom[idx] = ai;
+      continue;
+    }
+    const oth = 1 - ssum;
+    if (showOther && oth > sa) {
+      // the leading population here is one the model does not carry
+      const q = Math.min(255, Math.round(logT(oth) * densFac * 255)) * 4;
+      data[o] = LUT_NONE[q]; data[o+1] = LUT_NONE[q+1];
+      data[o+2] = LUT_NONE[q+2]; data[o+3] = LUT_NONE[q+3];
+      continue;
+    }
+    if (bi >= 0 && sb >= MIXT && sa < R * sb) {
+      const q = Math.min(255, Math.round(imax * 255)) * 4;
+      if (hatch) {
+        // The leader keeps the cell and the runner-up is striped diagonally across it, one
+        // field cell in four. The stripe is in field space, so it holds a constant width on
+        // screen as you zoom rather than growing with the map.
+        const st = ((ix + iy) & 3) === 0;
+        const L = luts[st ? bi : ai];
+        data[o] = L[q]; data[o+1] = L[q+1]; data[o+2] = L[q+2]; data[o+3] = L[q+3];
+        wash(o, q, washOf(actConf[st ? bi : ai][idx] / sw));
+      } else {
+        // Two faiths. Blend mode: ramps blended by relative share, gently minority-weighted
+        // (exponent < 1) so a 10-15% minority reads as a tint. Majority mode: a flat 50/50, so
+        // the narrow contested band draws the frontier as a line. The lerp always runs in
+        // registry order, so the colour of a contested cell does not depend on which of the
+        // two happens to be ahead at that pixel.
+        const lo = ai < bi ? ai : bi, hi = ai < bi ? bi : ai;
+        const rL = Math.pow(shScr[lo], 0.75), rH = Math.pow(shScr[hi], 0.75);
+        const t = majority ? 0.5 : rH / (rL + rH);
+        const A = luts[lo], B = luts[hi];
+        data[o]   = A[q]   + t * (B[q]   - A[q]);
+        data[o+1] = A[q+1] + t * (B[q+1] - A[q+1]);
+        data[o+2] = A[q+2] + t * (B[q+2] - A[q+2]);
+        data[o+3] = A[q+3];
+        wash(o, q, washOf(actConf[ai][idx] / sw));
+      }
     } else {
-      const q = Math.min(255, Math.round(iC * 255)) * 4;
-      data[o] = LUT[q]; data[o+1] = LUT[q+1]; data[o+2] = LUT[q+2]; data[o+3] = LUT[q+3];
+      // winner-take-all below the mix threshold keeps unmixed frontiers crisp
+      const L = luts[ai], q = Math.min(255, Math.round(inScr[ai] * 255)) * 4;
+      data[o] = L[q]; data[o+1] = L[q+1]; data[o+2] = L[q+2]; data[o+3] = L[q+3];
+      wash(o, q, washOf(actConf[ai][idx] / sw));
+    }
+  }
+  // Frontier lines, second pass. Dividing the margin by its own local gradient converts it
+  // into an approximate distance to the parity contour, in field pixels, so the line comes
+  // out the same width wherever the margin happens to change fast or slow. A pure threshold
+  // on the margin cannot do that, and produced a band across half of Africa.
+  if (meas && NA > 1) {
+    const HALFW = MT_LINE > 0.06 ? 1.15 : 0.75;     // Frontier control picks border or hairline
+    for (let j = 1; j < FH - 1; j++) {
+      for (let i = 1; i < FW - 1; i++) {
+        const idx = j * FW + i;
+        const m = frontM[idx];
+        if (m > 1) continue;                         // no contest here
+        const gx = (frontM[idx+1]  > 1 || frontM[idx-1]  > 1) ? 0 : (frontM[idx+1]  - frontM[idx-1])  * 0.5;
+        const gy = (frontM[idx+FW] > 1 || frontM[idx-FW] > 1) ? 0 : (frontM[idx+FW] - frontM[idx-FW]) * 0.5;
+        const gm = Math.sqrt(gx * gx + gy * gy);
+        // The margin has to be genuinely changing across this pixel for a contour to run
+        // through it. A near-zero margin over a flat area is a parity ZONE, not a frontier,
+        // and dividing one small number by another admitted it as a solid bar.
+        if (gm < 4e-3) continue;
+        const a = (1 - (m / gm) / HALFW) * 0.85;
+        if (a <= 0.01) continue;
+        const L = act[frontDom[idx]].lineRGB, o = idx * 4, base = data[o+3] / 255;
+        const outA = a + base * (1 - a);
+        // non-premultiplied source-over: a plain lerp washes the line out wherever the
+        // measure fill beneath it is transparent
+        data[o]   = (L[0] * a + data[o]   * base * (1 - a)) / outA;
+        data[o+1] = (L[1] * a + data[o+1] * base * (1 - a)) / outA;
+        data[o+2] = (L[2] * a + data[o+2] * base * (1 - a)) / outA;
+        data[o+3] = outA * 255;
+      }
     }
   }
   fctx.putImageData(fimg, 0, 0);
@@ -1255,6 +1789,13 @@ function drawBase() {
 }
 
 /* ============ journey & annotation engine (issue #15) ============ */
+// PARKED. The narrative overlays (apostolic journeys, Old Testament sites, church
+// foundations, the synagogue network) and the two views built on them are switched off:
+// the feature does not render correctly and is parked rather than deleted. Everything
+// below is intact and dormant. Flip this flag to revive it; nothing was removed, and the
+// four gates that read it are drawNarrative, buildNarrativePanel, drawCities' site
+// suppression, and the View picker.
+const NARRATIVE_ENABLED = false;
 // Shared primitive for narrative overlays: routes that draw leg by leg as the playhead
 // advances, and sites that ignite at their date. Everything is a pure function of the year
 // (the #10 convention), so scrubbing backwards un-draws correctly.
@@ -1520,6 +2061,7 @@ function journeyProgress(j, y) {
 }
 
 function drawNarrative(y) {
+  if (!NARRATIVE_ENABLED) return;
   const active = JOURNEYS.filter(j => j.mode === modeId && groupOn(j.group) && srcVisible(j.src));
   const sites = SITES.filter(s => s.mode === modeId && groupOn(s.group) && srcVisible(s.src) && y >= s.year);
   if (!active.length && !sites.length) return;
@@ -1629,6 +2171,7 @@ let narrativeLabelBoxes = [];
 // toggle panel, generated from whichever groups the active mode actually registers
 function buildNarrativePanel() {
   const panel = document.getElementById('narrPanel');
+  if (!NARRATIVE_ENABLED) { panel.classList.remove('on'); panel.innerHTML = ''; return; }
   const groups = [];
   for (const item of [...JOURNEYS, ...SITES]) {
     if (item.mode !== modeId) continue;
@@ -1675,7 +2218,9 @@ function drawCities(year) {
   const labelBoxes = narrativeLabelBoxes; // placed label rects, so labels don't collide
   // Where a narrative site already names a place, suppress the generic city marker. Compared
   // by position, not name, so spelling variants (Thessalonica / Thessaloniki) dedupe too.
-  const claimed = SITES.filter(s => s.mode === modeId && groupOn(s.group) && srcVisible(s.src) && year >= s.year);
+  const claimed = NARRATIVE_ENABLED
+    ? SITES.filter(s => s.mode === modeId && groupOn(s.group) && srcVisible(s.src) && year >= s.year)
+    : [];
   ctx.textBaseline = 'middle';
   ctx.font = `${11 * DPR}px system-ui, sans-serif`;
   for (const [name, lon, lat, cy, rank] of CITIES) {
@@ -1779,8 +2324,8 @@ const OT_EVENTS = [
 const MODES = {
   main: {
     label: 'World demographics',
-    title: 'Christian and Muslim Share of Population, AD 33 to 2026',
-    sub: 'Estimated share of local population through two millennia: Christianity in blue, Islam in red, genuine co-presence in purple. Historical anchor data blended with a live diffusion model; drag the sliders to play.',
+    title: () => datasetTitle(),          // generated from whichever datasets are visible
+    sub: () => datasetSub(),
     y0: 33, y1: 2026, tlExp: 0.55, speed: 25,
     ticks: EVENTS, marks: [33, 500, 1000, 1500, 2026],
     layers: { heat: true, cities: true }, hud: { pop: true }
@@ -1804,6 +2349,18 @@ const MODES = {
 };
 let modeId = 'main';
 const M = () => MODES[modeId];
+const modeEnabled = id => NARRATIVE_ENABLED || id === 'main';
+// The View picker lists only enabled modes. With the narrative views parked that leaves
+// one, so the control hides itself rather than offering a menu of a single option.
+function buildModePicker() {
+  const sel = document.getElementById('modePicker');
+  const ids = Object.keys(MODES).filter(modeEnabled);
+  sel.innerHTML = ids.map(id => `<option value="${id}">${MODES[id].label}</option>`).join('');
+  const solo = ids.length < 2 ? 'none' : '';
+  sel.style.display = solo;
+  document.getElementById('modePickerLabel').style.display = solo;
+}
+buildModePicker();
 const modeSaved = {};   // per-mode {year, playing, speed, cam} across switches
 
 const yearToPos = y => {
@@ -1846,12 +2403,25 @@ function buildTimeline() {
 
 /* ============ state & UI ============ */
 let year = MODES.main.y0, playing = true, needsRedraw = true, lastT = 0;
+// Everything the deep-link block below reads must be declared HERE, not down in the feature
+// section that owns it. That block runs at parse time, well before those sections, and a
+// `let` declared later is in its temporal dead zone: the page throws on load and the render
+// loop never starts.
+let inspectRi = null;   // region index open in the inspector, or null (see: region inspector)
+let showConf = true;    // confidence wash; on by default because it is the honest reading
+// Faiths are mutually exclusive shares of one population, so whatever is left over is a real
+// majority the model does not carry: Hindus in India, folk religion in China. Off by default,
+// because turning it on blanks large parts of the map and that should be a deliberate act.
+let showOther = false;
+let cmpYear = null;     // compare mode: pinned year A, or null (see: compare two years)
+let cmpCacheKey = '';   // what the cached field A was built for; '' means not built
+let cmpShare = null;    // dataset share at year A, per view-field pixel
 let speed = MODES.main.speed;
 // deep link: ?year=1500&play=1
 {
   const q = new URLSearchParams(location.search);
   const mq = q.get('mode');   // ?mode=apostolic (year, view etc are read in that domain)
-  if (mq && MODES[mq]) {
+  if (mq && MODES[mq] && modeEnabled(mq)) {
     modeId = mq;
     document.getElementById('modePicker').value = mq;
     year = M().y0; speed = M().speed; playing = false;
@@ -1865,22 +2435,44 @@ let speed = MODES.main.speed;
     params.mode = 'percap';
     document.getElementById('modeSel').value = 'percap';
   }
-  const lq = q.get('layers'); // e.g. ?layers=c, ?layers=m, ?layers=cm
+  // ?layers=chr,isl,bud — a comma list of dataset ids. The old single-letter form
+  // (?layers=c, ?layers=cm) is still honoured, because it is the syntax the README documents
+  // and links in the wild use it. Membership must not be a substring test: 'chr' contains
+  // both 'c' and 'h'.
+  const lq = q.get('layers');
   if (lq) {
-    layers.c = lq.includes('c'); layers.m = lq.includes('m');
-    document.getElementById('layerC').checked = layers.c;
-    document.getElementById('layerM').checked = layers.m;
+    const LEGACY = { c: 'chr', m: 'isl' };
+    const want = lq.includes(',') ? lq.split(',').map(x => x.trim()).filter(Boolean)
+      : [...lq].every(ch => LEGACY[ch]) ? [...lq].map(ch => LEGACY[ch])
+      : [lq];
+    for (const ds of faiths()) ds.on = want.includes(ds.id);
   }
+  if (q.get('conf') === '0') showConf = false;
+  if (q.get('other') === '1') showOther = true;
+  const fq = q.get('from');       // ?from=600&to=800 renders the change between two years
+  if (fq !== null && Number.isFinite(+fq)) {
+    cmpYear = Math.min(SIM_Y1, Math.max(SIM_Y0, +fq));
+    const tq = q.get('to');
+    if (tq !== null && Number.isFinite(+tq)) { year = Math.min(SIM_Y1, Math.max(SIM_Y0, +tq)); playing = false; }
+  }
+  const mq2 = q.get('measure');   // ?measure=urb, or ?measure=none
+  if (mq2 !== null)
+    for (const ds of DATASETS) if (ds.kind === 'measure') ds.on = ds.id === mq2;
   if (q.get('frontier') === 'majority') {
     params.frontier = 'majority';
     document.getElementById('frontierSel').value = 'majority';
   }
   const bq = q.get('bib');  // ?bib=paul,deaths restricts narrative groups; ?bib=none clears
-  if (bq !== null) {
+  if (bq !== null && NARRATIVE_ENABLED) {
     const want = bq.split(',').filter(Boolean);
     for (const item of [...JOURNEYS, ...SITES]) narrativeOn[item.group] = want.includes(item.group);
   }
-  if (q.get('tradition') === '0') showTradition = false;
+  if (q.get('tradition') === '0' && NARRATIVE_ENABLED) showTradition = false;
+  const rq = q.get('region');  // ?region=India — opens the inspector on load
+  if (rq) {
+    const i = REGIONS.findIndex(r => r.n.toLowerCase() === rq.trim().toLowerCase());
+    if (i >= 0) inspectRi = i;
+  }
   const vq = q.get('view'); // ?view=lon,lat,zoom
   if (vq) {
     const v = vq.split(',').map(Number);
@@ -1905,17 +2497,19 @@ function eraLabel(y) {
   return best[1] + ', ' + fmtYear(best[0]);
 }
 /* ============ running population tally (issue #11) ============ */
-// Sums of the anchor data: world = sum p, Christian = sum p*s, Muslim = sum p*si (millions).
+// Sums of the anchor data: world = sum p, and per dataset sum p*share (millions).
 // City overlays contribute their own p, a small known double count against the base regions,
 // consistent with how the heat layer treats them.
 function worldTotals(y) {
-  let w = 0, c = 0, m = 0;
+  const t = { w: 0 };
+  for (const ds of DATASETS) t[ds.id] = 0;
   for (const reg of REGIONS) {
     const p = interp(reg.p, y);
     if (p <= 0) continue;
-    w += p; c += p * interp(reg.s, y); m += p * interp(reg.si, y);
+    t.w += p;
+    for (const ds of DATASETS) t[ds.id] += p * interp(reg[ds.key], y);
   }
-  return { w, c, m };
+  return t;
 }
 const POP_MAX = worldTotals(SIM_Y1).w;
 // sqrt scale: on a linear scale the first millennium (~250M against 8B) is an invisible sliver
@@ -1925,35 +2519,50 @@ function fmtPop(mil) {
   if (mil >= 1) return Math.round(mil) + 'M';
   return Math.round(mil * 1000) + 'k';
 }
-const popEls = {
-  w: [document.getElementById('popFillW'), document.getElementById('popNumW')],
-  c: [document.getElementById('popFillC'), document.getElementById('popNumC')],
-  m: [document.getElementById('popFillM'), document.getElementById('popNumM')]
-};
+// The tally is generated: a world row, then one row per visible dataset. Row count is no
+// longer a constant, which is why updateHUD measures the panel rather than assuming three.
+let popEls = {};
+function buildPopHud() {
+  const hud = document.getElementById('popHud');
+  const rows = [{ id: 'w', name: 'Est. world population' }]
+    .concat(DATASETS.filter(d => d.on).map(d => ({ id: d.id, name: d.people })));
+  hud.innerHTML = rows.map(r =>
+    '<div><div class="pop-name">' + r.name + '</div>' +
+    '<div class="pop-row"><div class="pop-track"><div class="pop-fill" data-pop="' + r.id + '"></div></div>' +
+    '<span class="pop-num" data-popnum="' + r.id + '">–</span></div></div>').join('');
+  popEls = {};
+  for (const r of rows)
+    popEls[r.id] = [hud.querySelector('[data-pop="' + r.id + '"]'), hud.querySelector('[data-popnum="' + r.id + '"]')];
+  stylePopBars();
+}
 function updatePopHud(y) {
   const t = worldTotals(y);
   const shareOf = v => t.w > 0 ? ' (' + (v / t.w * 100).toFixed(v / t.w < 0.01 ? 1 : 0) + '%)' : '';
-  popEls.w[0].style.width = (popScale(t.w) * 100) + '%';
-  popEls.w[1].textContent = fmtPop(t.w);
-  popEls.c[0].style.width = (popScale(t.c) * 100) + '%';
-  popEls.c[1].textContent = fmtPop(t.c) + shareOf(t.c);
-  popEls.m[0].style.width = (popScale(t.m) * 100) + '%';
-  popEls.m[1].textContent = fmtPop(t.m) + shareOf(t.m);
+  for (const id in popEls) {
+    const v = t[id];
+    if (v === undefined) continue;
+    popEls[id][0].style.width = (popScale(v) * 100) + '%';
+    popEls[id][1].textContent = fmtPop(v) + (id === 'w' ? '' : shareOf(v));
+  }
 }
 function stylePopBars() {
   // track the heat ramps: mid-ramp stops read well against both themes
-  popEls.w[0].style.background = cssVar('--muted');
-  popEls.c[0].style.background = isDark() ? RAMP[3] : RAMP[8];
-  popEls.m[0].style.background = isDark() ? RAMP_RED[3] : RAMP_RED[8];
+  if (popEls.w) popEls.w[0].style.background = cssVar('--muted');
+  for (const ds of DATASETS)
+    if (popEls[ds.id]) popEls[ds.id][0].style.background = isDark() ? ds.ramp[3] : ds.ramp[8];
 }
 
 function updateChrome() {
   yearBig.textContent = fmtYear(year);
   yearSub.textContent = eraLabel(year);
   if (M().hud.pop) updatePopHud(year);
+  updateRegionPanel();
   const p = yearToPos(year) * 100;
   tlFill.style.width = p + '%';
   tlHandle.style.left = p + '%';
+  const ghost = document.getElementById('tlGhost');
+  ghost.classList.toggle('on', cmpYear !== null);
+  if (cmpYear !== null) ghost.style.left = (yearToPos(cmpYear) * 100) + '%';
   playBtn.innerHTML = playing ? '&#10073;&#10073;' : '&#9654;';
 }
 
@@ -1962,8 +2571,77 @@ playBtn.addEventListener('click', () => {
   playing = !playing; needsRedraw = true;
 });
 document.getElementById('speedSel').addEventListener('change', e => speed = +e.target.value);
-document.getElementById('layerC').addEventListener('change', e => { layers.c = e.target.checked; buildLegend(); needsRedraw = true; });
-document.getElementById('layerM').addEventListener('change', e => { layers.m = e.target.checked; buildLegend(); needsRedraw = true; });
+// The page title and standfirst name whichever datasets are visible, so they cannot go stale
+// when a layer is toggled or a population type is added.
+function datasetTitle() {
+  if (cmpYear !== null) {
+    const ds = cmpDataset();
+    return 'Change in ' + (ds ? ds.label : 'Population') + ' Share, ' +
+           fmtYear(cmpYear) + ' to ' + fmtYear(year);
+  }
+  // A measure fills the map, so it names the view; folding it into the faith list would
+  // read as "Christian, Muslim and urban share", which is not a thing.
+  const me = DATASETS.find(d => d.kind === 'measure' && d.on);
+  if (me) return me.label + ', AD 33 to 2026';
+  const fa = activeFaiths();
+  return fa.length
+    ? listOf(fa.map(d => d.adj)) + ' Share of Population, AD 33 to 2026'
+    : 'Population Share, AD 33 to 2026';
+}
+function datasetSub() {
+  if (cmpYear !== null) {
+    const ds = cmpDataset();
+    return ds
+      ? 'Where ' + ds.label + ' gained (green) and lost (violet) between those two years, not its level at either. Scrub to move the second year; press the button again to leave.'
+      : 'Nothing visible to compare. Turn on a layer.';
+  }
+  const fa = activeFaiths(), me = DATASETS.find(d => d.kind === 'measure' && d.on);
+  if (!fa.length && !me) return 'No layers visible. Turn one on to see the map.';
+  const tail = '. Historical anchor data blended with a live diffusion model; drag the sliders to play.';
+  if (me) {
+    return me.label + ' (' + me.note + ') fills the map' +
+      (fa.length ? ', with ' + listOf(fa.map(d => d.label)) + ' reduced to their frontier lines over it' : '') +
+      tail;
+  }
+  return 'Estimated share of local population through two millennia: ' +
+    listOf(fa.map(d => d.label + ' in ' + d.hue)) +
+    (fa.length > 2 ? ', contested ground striped with the runner-up'
+      : fa.length > 1 ? ', contested ground blended between them' : '') + tail;
+}
+function updateTitles() {
+  if (modeId !== 'main') return;
+  document.getElementById('pageTitle').textContent = datasetTitle();
+  document.getElementById('pageSub').textContent = datasetSub();
+}
+
+function setLayer(id, on) {
+  const ds = DS(id);
+  ds.on = on;
+  if (on && ds.kind === 'faith' && !ds.ready) enqueueSim(ds);   // simulate on first reveal
+  buildLegend(); buildPopHud(); buildTables(); updateTitles(); buildRegionPanel();
+  needsRedraw = true;
+}
+// Faiths are checkboxes because they coexist. Measures are a single-select because only one
+// can fill the map at a time, and offering checkboxes would imply otherwise.
+function buildLayerToggles() {
+  const host = document.getElementById('layerToggles');
+  host.innerHTML = faiths().map(ds =>
+    '<label class="chk"><input type="checkbox" data-layer="' + ds.id + '"' +
+    (ds.on ? ' checked' : '') + '> ' + ds.label + '</label>').join('');
+  host.querySelectorAll('[data-layer]').forEach(cb =>
+    cb.addEventListener('change', () => setLayer(cb.dataset.layer, cb.checked)));
+  const sel = document.getElementById('measureSel');
+  const ms = DATASETS.filter(d => d.kind === 'measure');
+  sel.innerHTML = '<option value="">None</option>' + ms.map(d =>
+    '<option value="' + d.id + '"' + (d.on ? ' selected' : '') + '>' + d.label + '</option>').join('');
+  sel.onchange = () => setMeasure(sel.value);
+}
+function setMeasure(id) {
+  for (const ds of DATASETS) if (ds.kind === 'measure') ds.on = ds.id === id;
+  buildLegend(); buildPopHud(); buildTables(); updateTitles(); buildRegionPanel();
+  needsRedraw = true;
+  scheduleViewURL();
+}
 document.getElementById('frontierSel').addEventListener('change', e => {
   params.frontier = e.target.value;
   buildLegend();
@@ -1971,18 +2649,39 @@ document.getElementById('frontierSel').addEventListener('change', e => {
 });
 document.getElementById('modeSel').addEventListener('change', e => {
   params.mode = e.target.value;
-  document.getElementById('legendNote').textContent = params.mode === 'percap'
-    ? 'log-scaled; per capita, brightness ignores population size where inhabited'
-    : 'log-scaled; brightness also weights population density';
+  updateLegendNote();
   needsRedraw = true;
 });
+// Three swatches showing what each confidence tier does to a fill, sampled from the same
+// ramp and the same wash the renderer uses, so the key cannot drift from the map.
+function buildConfKey() {
+  const el = document.getElementById('legConf');
+  const ds = DATASETS.find(d => d.kind === 'measure' && d.on) || activeFaiths()[0];
+  if (!showConf || !ds || cmpYear !== null) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const q = 210 * 4;
+  el.innerHTML = CONF_LABEL.map((label, tier) => {
+    const w = (1 - CONF_WEIGHT[tier]) * 0.75;
+    const rgb = [0, 1, 2].map(k => Math.round(ds.lut[q+k] + w * (LUT_NONE[q+k] - ds.lut[q+k]))).join(',');
+    return '<span class="mix-chip" style="background:rgb(' + rgb + ')"></span>' + label;
+  }).join(' ');
+}
+// One place decides what the legend footnote says, because two places drifted apart once.
+function updateLegendNote() {
+  document.getElementById('legendNote').textContent =
+    (params.mode === 'percap'
+      ? 'log-scaled; per capita, brightness ignores population size where inhabited'
+      : 'log-scaled; brightness also weights population density') +
+    (showConf ? '; washed toward grey where the figure is an estimate or a conjecture' : '');
+}
 
 /* ============ mode switching (issue #14) ============ */
 const speedSel = document.getElementById('speedSel');
 function applyModeChrome() {
   const m = M();
-  document.getElementById('pageTitle').textContent = m.title;
-  document.getElementById('pageSub').textContent = m.sub;
+  const txt = v => typeof v === 'function' ? v() : v;
+  document.getElementById('pageTitle').textContent = txt(m.title);
+  document.getElementById('pageSub').textContent = txt(m.sub);
   // panels that only mean something for the demographic visualization
   document.querySelectorAll('.heat-only').forEach(el => {
     el.style.display = m.layers.heat ? '' : 'none';
@@ -1997,7 +2696,7 @@ function applyModeChrome() {
   speed = m.speed;
 }
 function setMode(id) {
-  if (!MODES[id] || id === modeId) return;
+  if (!MODES[id] || id === modeId || !modeEnabled(id)) return;
   modeSaved[modeId] = { year, playing, speed, cam: { ...cam } };
   modeId = id;
   document.getElementById('modePicker').value = id;
@@ -2017,6 +2716,13 @@ function setMode(id) {
   needsRedraw = true;
 }
 document.getElementById('modePicker').addEventListener('change', e => setMode(e.target.value));
+document.getElementById('cmpBtn').addEventListener('click', () => setCompare(cmpYear === null ? year : null));
+document.getElementById('confChk').addEventListener('change', e => {
+  showConf = e.target.checked; buildLegend(); needsRedraw = true; scheduleViewURL();
+});
+document.getElementById('otherChk').addEventListener('change', e => {
+  showOther = e.target.checked; buildLegend(); needsRedraw = true; scheduleViewURL();
+});
 
 let scrubbing = false;
 function scrubTo(clientX) {
@@ -2041,11 +2747,11 @@ const bind = (id, out, key, fmt, resim) => {
 let resimTimer = null;
 function scheduleResim() {
   clearTimeout(resimTimer);
-  resimTimer = setTimeout(runSimulation, 350);
+  resimTimer = setTimeout(resimAll, 350);
 }
 bind('pGrowth', 'oGrowth', 'growth', fmtX, true);
 bind('pSpread', 'oSpread', 'spread', fmtX, true);
-bind('pUrban', 'oUrban', 'urban', v => v.toFixed(2), false);
+bind('pUrban', 'oUrban', 'densExp', v => v.toFixed(2), false);
 bind('pDecline', 'oDecline', 'decline', fmtX, true);
 bind('pBlend', 'oBlend', 'blend', v => Math.round(v * 100) + '% history', false);
 
@@ -2053,7 +2759,7 @@ bind('pBlend', 'oBlend', 'blend', v => Math.round(v * 100) + '% history', false)
 document.getElementById('themeBtn').addEventListener('click', () => {
   const cur = isDark() ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', cur);
-  buildLUT(); buildLegend(); stylePopBars(); needsRedraw = true;
+  buildLUT(); buildLegend(); stylePopBars(); buildRegionPanel(); needsRedraw = true;
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { buildLUT(); buildLegend(); stylePopBars(); needsRedraw = true; });
 
@@ -2067,6 +2773,14 @@ function scheduleViewURL() {
       const q = new URLSearchParams(location.search);
       if (cam.z > 1.001) q.set('view', cam.lon.toFixed(2) + ',' + cam.lat.toFixed(2) + ',' + cam.z.toFixed(2));
       else q.delete('view');
+      if (inspectRi !== null) q.set('region', REGIONS[inspectRi].n);
+      else q.delete('region');
+      const mOn = DATASETS.find(x => x.kind === 'measure' && x.on);
+      if (mOn) q.set('measure', mOn.id); else q.delete('measure');
+      if (cmpYear !== null) { q.set('from', Math.round(cmpYear)); q.set('to', Math.round(year)); }
+      else { q.delete('from'); q.delete('to'); }
+      if (!showConf) q.set('conf', '0'); else q.delete('conf');
+      if (showOther) q.set('other', '1'); else q.delete('other');
       const qs = q.toString();
       history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
     } catch (_) { /* history API unavailable (some file:// contexts); deep link just not updated */ }
@@ -2126,7 +2840,7 @@ function panBy(dxClient, dyClient) {
 }
 canvas.addEventListener('pointerdown', e => {
   canvas.setPointerCapture(e.pointerId);
-  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY });
   pinch0 = null;
   if (cam.z > 1.001) canvas.style.cursor = 'grabbing';
   tooltip.style.display = 'none';
@@ -2149,19 +2863,216 @@ canvas.addEventListener('pointermove', e => {
     pinch0 = { mx, my, d };
   }
 });
-function endPointer(e) {
+function endPointer(e, isUp) {
+  const pt = pointers.get(e.pointerId);
+  // a pointerup that barely travelled is a click, not the end of a pan: open the inspector.
+  // clicking the open region again closes it, so the same gesture toggles.
+  if (isUp && pt && pointers.size === 1 && M().layers.heat &&
+      Math.hypot(e.clientX - pt.x0, e.clientY - pt.y0) < 4) {
+    const ri = regionAt(e.clientX, e.clientY);
+    if (ri !== null) selectRegion(ri === inspectRi ? null : ri);
+  }
   pointers.delete(e.pointerId);
   if (pointers.size < 2) pinch0 = null;
   if (pointers.size === 0) canvas.style.cursor = cam.z > 1.001 ? 'grab' : 'crosshair';
 }
-canvas.addEventListener('pointerup', endPointer);
-canvas.addEventListener('pointercancel', endPointer);
+canvas.addEventListener('pointerup', e => endPointer(e, true));
+canvas.addEventListener('pointercancel', e => endPointer(e, false));
 
-// hover tooltip: nearest region, search radius shrinking with zoom
-const tooltip = document.getElementById('tooltip');
-canvas.addEventListener('mousemove', e => {
-  if (pointers.size > 0) return;   // panning or pinching
-  const [lon, lat] = clientLonLat(e.clientX, e.clientY);
+
+/* ============ confidence (#8) ============ */
+// How much is actually known about a figure, rendered rather than footnoted. Three tiers:
+// conjecture (no enumeration within centuries; the number carries a direction, not a
+// magnitude), estimate (published scholarly reconstruction), attested (a census or survey
+// within roughly fifty years). Encoded as two year thresholds per region per dataset, because
+// confidence changes with era far more than it varies region to region, and authoring 19
+// values per region per dataset would be a fiction of its own.
+//
+// `contested` is separate and does not improve with time: places where the quantity is not
+// measurable even now. France bans religious censuses. Russia's census carries no religion
+// question. "Buddhist" is not a well-defined share in China, Japan or Vietnam, where the 2019
+// state census says 4.8% and a 2024 survey says 38% of the same population. Nigeria's urban
+// series rests on one census, from 1953, against a 20,000-person threshold.
+const CONF = {
+  // [conjecture until, attested from] — the span between them is estimate
+  chr: { def: [300, 1850], reg: {
+    "Levant":[200,1900], "Anatolia":[200,1900], "Egypt":[200,1950], "Italy":[150,1850],
+    "Greece & Balkans":[250,1900], "Iberia":[250,1850], "France":[250,1850],
+    "Britain & Ireland":[350,1800], "Central Europe":[400,1850], "Scandinavia":[900,1850],
+    "Rus & Russia":[1000,1900], "Ethiopia & Horn":[400,1950], "Nubia & Sudan":[400,1950],
+    "India":[500,1900], "China":[700,2000], "North America":[1600,1800],
+    "Pakistan":[1800,1900], "Bangladesh":[1500,1900],
+    "Netherlands":[500,1800], "Belgium & Luxembourg":[500,1850],
+    "Mesoamerica & Caribbean":[1500,1800], "South America":[1500,1850], "Philippines":[1550,1900] } },
+  isl: { def: [800, 1850], reg: {
+    "Arabia":[700,1950], "Levant":[700,1900], "Mesopotamia":[700,1950], "Persia":[700,1950],
+    "Egypt":[700,1950], "Maghreb":[750,1950], "Iberia":[750,1850], "Anatolia":[900,1900],
+    "India":[1000,1900], "Central Asia":[800,1950], "West Africa":[1100,1950],
+    "Pakistan":[900,1900], "Bangladesh":[1500,1900],
+    "Netherlands":[1900,1980], "Belgium & Luxembourg":[1900,1980],
+    "Maritime Southeast Asia":[1300,1900], "China":[900,2000] } },
+  bud: { def: [1200, 1900], reg: {
+    "India":[1400,1900], "Central Asia":[1850,9999], "China":[1950,2000],
+    "Korea & Japan":[1600,1900], "Mongolia":[1500,2000], "Tibet & Bhutan":[1700,2000],
+    "Pakistan":[400,1900], "Bangladesh":[1200,1900],
+    "Netherlands":[1900,2000], "Belgium & Luxembourg":[1900,2000],
+    "Nepal":[1700,2000], "Sri Lanka":[33,1850], "Mainland Southeast Asia":[1000,1900],
+    "Maritime Southeast Asia":[1850,1900], "Philippines":[1900,1950],
+    "Rus & Russia":[1700,2000], "Persia":[9999,9999] } },
+  urb: { def: [1500, 1900], reg: {
+    "Italy":[600,1850], "Britain & Ireland":[600,1800], "France":[600,1850], "Iberia":[600,1850],
+    "Greece & Balkans":[600,1850], "Central Europe":[1400,1850], "Scandinavia":[1400,1850],
+    "Poland & Baltics":[1400,1850], "Rus & Russia":[1400,1900],
+    "Egypt":[600,1950], "Levant":[600,1950], "Mesopotamia":[1400,1950], "Persia":[1400,1950],
+    "Maghreb":[1400,1950], "Central Asia":[1400,1950], "Anatolia":[1400,1950],
+    "Caucasus":[1900,9999], "Arabia":[1900,9999],
+    "China":[1600,1950], "Korea & Japan":[1500,1950], "India":[1500,1900],
+    "Mainland Southeast Asia":[1800,1950], "Maritime Southeast Asia":[1700,1950],
+    "Philippines":[1500,1900], "Sri Lanka":[1850,1900], "Tibet & Bhutan":[1900,1950],
+    "Nepal":[1900,1950], "Mongolia":[1900,1950],
+    "Pakistan":[1500,1900], "Bangladesh":[1600,1900],
+    "Netherlands":[1200,1795], "Belgium & Luxembourg":[1200,1846],
+    "West Africa":[1800,1950], "Central Africa":[1900,1950], "East Africa":[1900,1950],
+    "Ethiopia & Horn":[1900,1950], "Nubia & Sudan":[1900,1950], "Southern Africa":[1800,1900],
+    "North America":[1700,1800], "Mesoamerica & Caribbean":[1500,1800],
+    "South America":[1500,1850], "Oceania":[1800,1850] } },
+};
+// region+dataset pairs where the figure is not measurable even now, from the year it stops
+// improving. Capped at estimate however late the anchor.
+const CONTESTED = {
+  chr: { "France": 1900, "Rus & Russia": 2000, "Belgium & Luxembourg": 1950 },
+  isl: { "France": 1900, "Rus & Russia": 2000, "Belgium & Luxembourg": 1950 },
+  bud: { "China": 33, "Korea & Japan": 1700, "Mainland Southeast Asia": 1950,
+         "Tibet & Bhutan": 2000, "Rus & Russia": 2000, "France": 1900 },
+  urb: { "Pakistan": 1950, "Bangladesh": 1950, "Netherlands": 1990, "Belgium & Luxembourg": 1990,
+         "West Africa": 1950, "Ethiopia & Horn": 1950, "Sri Lanka": 1950, "Nepal": 1950,
+         "Egypt": 1950, "India": 1950 },
+};
+const CONF_LABEL = ['conjecture', 'estimate', 'attested'];
+// what each tier is worth as a rendering weight: attested full strength, conjecture heavily
+// washed toward the neutral, estimate in between
+const CONF_WEIGHT = [0.22, 0.62, 1];
+function confOf(dsId, regName, year) {
+  const t = CONF[dsId];
+  if (!t) return 1;
+  const [cj, at] = t.reg[regName] || t.def;
+  let tier = year < cj ? 0 : year < at ? 1 : 2;
+  const cn = CONTESTED[dsId] && CONTESTED[dsId][regName];
+  if (cn !== undefined && year >= cn) tier = Math.min(tier, 1);
+  return tier;
+}
+
+/* ============ compare two years (#9) ============ */
+// Pin a year, scrub to another, and the map renders the change rather than the state. The
+// pinned year's field is cached, because rebuilding two analytic fields every frame would
+// double the per-frame cost for a value that only moves when the camera or the pin does.
+// The compared dataset is the measure if one fills the map, otherwise the first visible
+// faith. Stated in the legend rather than left to be guessed.
+function cmpDataset() {
+  return DATASETS.find(d => d.kind === 'measure' && d.on) || activeFaiths()[0] || null;
+}
+// Rebuilds only when something it depends on actually changed. Self-validating rather than
+// invalidated by callback, because a cache that silently samples the wrong place renders a
+// plausible-looking map that is entirely wrong.
+function ensureCompareField(lon0, latTopV, cw, ch) {
+  const ds = cmpDataset();
+  if (!ds) { cmpCacheKey = ''; return null; }
+  const key = ds.id + '|' + cmpYear.toFixed(2) + '|' + lon0.toFixed(4) + '|' + latTopV.toFixed(4) +
+              '|' + cw.toFixed(6) + '|' + FW + 'x' + FH;
+  if (key === cmpCacheKey) return ds;
+  if (!cmpShare || cmpShare.length !== FW * FH) cmpShare = new Float32Array(FW * FH);
+  buildViewField(cmpYear, lon0, latTopV, cw, ch);
+  const num = ds.viewNum;
+  for (let i = 0; i < FW * FH; i++) {
+    const w = viewWsum[i];
+    cmpShare[i] = w > 1e-9 ? num[i] / w : 0;
+  }
+  cmpCacheKey = key;
+  return ds;
+}
+function setCompare(y) {
+  cmpYear = y;
+  document.getElementById('cmpBtn').textContent = y === null ? 'Compare from here' : 'Comparing from ' + fmtYear(y);
+  buildLegend(); updateTitles();
+  needsRedraw = true;
+  scheduleViewURL();
+}
+
+/* ============ region inspector ============ */
+// Click a region to see every visible dataset's whole curve at once. The dots are the anchor
+// estimates and the line between them is interpolation: drawing both is the point, because
+// the map alone cannot show you where the data stops and the model starts. The x axis carries
+// the same warp as the timeline, so a position here is the same position on the scrubber.
+const rpEl = document.getElementById('regionPanel');
+const RP_W = 240, RP_TOP = 5, RP_BOT = 44, RP_H = 52;
+const rpX = y => 2 + yearToPos(Math.min(SIM_Y1, Math.max(SIM_Y0, y))) * (RP_W - 4);
+const rpY = v => RP_BOT - Math.max(0, Math.min(1, v)) * (RP_BOT - RP_TOP);
+
+function regionSparkline(reg, ds) {
+  const arr = reg[ds.key] || ZERO19;
+  const pts = ANCHORS.map((a, i) => [rpX(a), rpY(arr[i] || 0)]);
+  const line = pts.map(pt => pt[0].toFixed(1) + ',' + pt[1].toFixed(1)).join(' ');
+  const col = isDark() ? ds.ramp[3] : ds.ramp[8];
+  const dots = pts.map((pt, i) =>
+    '<circle cx="' + pt[0].toFixed(1) + '" cy="' + pt[1].toFixed(1) + '" r="1.8" fill="' + col + '">' +
+    '<title>' + fmtYear(ANCHORS[i]) + ': ' + ((arr[i] || 0) * 100).toFixed(1) + '%</title></circle>').join('');
+  return '<svg viewBox="0 0 ' + RP_W + ' ' + RP_H + '" preserveAspectRatio="none">' +
+    '<line x1="2" y1="' + rpY(0.5) + '" x2="' + (RP_W - 2) + '" y2="' + rpY(0.5) +
+      '" stroke="var(--grid)" stroke-width="1" stroke-dasharray="2 3"/>' +
+    '<line x1="2" y1="' + RP_BOT + '" x2="' + (RP_W - 2) + '" y2="' + RP_BOT +
+      '" stroke="var(--border)" stroke-width="1"/>' +
+    '<polygon points="' + pts[0][0].toFixed(1) + ',' + RP_BOT + ' ' + line + ' ' +
+      pts[pts.length - 1][0].toFixed(1) + ',' + RP_BOT + '" fill="' + col + '" opacity="0.15"/>' +
+    '<polyline points="' + line + '" fill="none" stroke="' + col +
+      '" stroke-width="1.6" stroke-linejoin="round"/>' + dots +
+    '<line data-cursor="' + ds.id + '" x1="0" y1="' + (RP_TOP - 4) + '" x2="0" y2="' + (RP_BOT + 5) +
+      '" stroke="var(--ink-2)" stroke-width="1" opacity="0.5"/></svg>';
+}
+
+function buildRegionPanel() {
+  if (inspectRi === null) { rpEl.hidden = true; rpEl.innerHTML = ''; return; }
+  const reg = REGIONS[inspectRi], act = DATASETS.filter(d => d.on);
+  rpEl.hidden = false;
+  rpEl.innerHTML =
+    '<div class="rp-head"><span class="rp-name">' + reg.n + '</span>' +
+    '<button class="rp-close" id="rpClose" title="Close" aria-label="Close region inspector">&times;</button></div>' +
+    '<div class="rp-meta" id="rpMeta"></div>' +
+    (act.length
+      ? '<div class="rp-charts">' + act.map(ds =>
+          '<figure class="rp-chart"><figcaption>' + ds.label +
+          '<b data-rpval="' + ds.id + '">–</b></figcaption>' + regionSparkline(reg, ds) + '</figure>').join('') +
+        '</div>'
+      : '<div class="rp-meta">No layers visible. Turn one on to see its curve.</div>');
+  document.getElementById('rpClose').addEventListener('click', () => selectRegion(null));
+  updateRegionPanel();
+}
+
+function updateRegionPanel() {
+  if (inspectRi === null || rpEl.hidden) return;
+  const reg = REGIONS[inspectRi], x = rpX(year).toFixed(1);
+  rpEl.querySelectorAll('[data-cursor]').forEach(l => { l.setAttribute('x1', x); l.setAttribute('x2', x); });
+  for (const ds of DATASETS) {
+    const el = rpEl.querySelector('[data-rpval="' + ds.id + '"]');
+    if (!el) continue;
+    const v = interp(reg[ds.key] || ZERO19, year) * 100;
+    el.textContent = (v > 0 && v < 1 ? v.toFixed(2) : v.toFixed(0)) + '%';
+  }
+  document.getElementById('rpMeta').textContent =
+    '~' + fmtPop(interp(reg.p, year)) + ' people in ' + fmtYear(year) + ' · the ' + ANCHORS.length +
+    ' dots are the anchor estimates, the line between them is interpolation';
+}
+
+function selectRegion(ri) {
+  inspectRi = ri;
+  buildRegionPanel();
+  scheduleViewURL();
+}
+
+// Nearest region to a screen point, search radius shrinking with zoom so a world-view click
+// picks the region you meant and a city-zoom click only picks what is under the cursor.
+// Shared by the hover tooltip and the region inspector.
+function regionAt(clientX, clientY) {
+  const [lon, lat] = clientLonLat(clientX, clientY);
   const rad = Math.max(1.5, 8 / cam.z);
   let best = null, bd = rad * rad;
   REGIONS.forEach((reg, ri) => {
@@ -2171,11 +3082,27 @@ canvas.addEventListener('mousemove', e => {
       if (d < bd) { bd = d; best = ri; }
     }
   });
+  return best;
+}
+
+// hover tooltip
+const tooltip = document.getElementById('tooltip');
+canvas.addEventListener('mousemove', e => {
+  if (pointers.size > 0) return;   // panning or pinching
+  const best = regionAt(e.clientX, e.clientY);
   if (best === null) { tooltip.style.display = 'none'; return; }
   const reg = REGIONS[best];
-  const shC = interp(reg.s, year), shM = interp(reg.si, year), pop = interp(reg.p, year);
+  const pop = interp(reg.p, year);
   const pct = v => v < 0.01 ? (v*100).toFixed(2) : (v*100).toFixed(0);
-  tooltip.innerHTML = `<b>${reg.n}</b><div class="tt-sub">est. ${pct(shC)}% Christian &middot; ${pct(shM)}% Muslim &middot; ~${pop < 1 ? (pop*1000).toFixed(0) + 'k' : Math.round(pop) + 'M'} people &middot; ${year < 1000 ? 'AD ' + Math.round(year) : Math.round(year)}</div>`;
+  const parts = DATASETS.filter(d => d.on).map(d => {
+    const tier = confOf(d.id, reg.n, year);
+    const cn = CONTESTED[d.id] && CONTESTED[d.id][reg.n];
+    const note = (cn !== undefined && year >= cn) ? 'contested' : CONF_LABEL[tier];
+    return pct(interp(reg[d.key], year)) + '% ' + d.adj + ' <i>(' + note + ')</i>';
+  });
+  parts.push('~' + (pop < 1 ? (pop*1000).toFixed(0) + 'k' : Math.round(pop) + 'M') + ' people');
+  parts.push(year < 1000 ? 'AD ' + Math.round(year) : String(Math.round(year)));
+  tooltip.innerHTML = `<b>${reg.n}</b><div class="tt-sub">est. ${parts.join(' &middot; ')}</div>`;
   tooltip.style.display = 'block';
   const wr = canvas.parentElement.getBoundingClientRect();
   tooltip.style.left = Math.min(wr.width - 240, e.clientX - wr.left + 14) + 'px';
@@ -2185,48 +3112,100 @@ canvas.addEventListener('mouseleave', () => tooltip.style.display = 'none');
 
 // legend
 function buildLegend() {
-  const grad = ramp => {
-    const stops = isDark() ? ramp.slice().reverse() : ramp;
+  const grad = (ramp, diverging) => {
+    // a diverging ramp is never reversed for dark theme: that would swap gain and loss
+    const stops = (isDark() && !diverging) ? ramp.slice().reverse() : ramp;
     return `linear-gradient(to right, ${stops.map((c, i) => c + ' ' + (i / (stops.length - 1) * 100) + '%').join(',')})`;
   };
-  document.getElementById('legendBar').style.background = grad(RAMP);
-  document.getElementById('legendBarM').style.background = grad(RAMP_RED);
-  for (const id of ['legendTicks', 'legendTicksM']) {
-    const ticks = document.getElementById(id);
-    ticks.innerHTML = '';
+  const blocks = document.getElementById('legendBlocks');
+  const mixEl = document.getElementById('legMix');
+  if (cmpYear !== null) {
+    const ds = cmpDataset();
+    const stops = isDark() ? RAMP_DIV_DARK : RAMP_DIV_LIGHT;
+    blocks.innerHTML = '<div><div class="legend-name">' +
+      (ds ? 'Change in ' + ds.label : 'Change') + ', ' + fmtYear(cmpYear) + ' to ' + fmtYear(year) +
+      '</div><div class="legend-bar" style="background:' + grad(stops, true) +
+      '"></div><div class="legend-ticks"><span style="left:0%">lost</span>' +
+      '<span style="left:50%">no change</span><span style="left:100%">gained</span></div></div>';
+    mixEl.style.display = 'none';
+    document.getElementById('legendNote').textContent =
+      'diverging; the midpoint is transparent, so only real movement is drawn';
+    return;
+  }
+  const act = DATASETS.filter(d => d.on);
+  blocks.innerHTML = act.map(ds =>
+    '<div><div class="legend-name">' + ds.label + (ds.note ? ' <span style="color:var(--muted)">' + ds.note + '</span>' : '') + '</div>' +
+    '<div class="legend-bar" style="background:' + grad(ds.ramp) + '"></div>' +
+    '<div class="legend-ticks" data-ticks="' + ds.id + '"></div></div>').join('');
+  for (const ds of act) {
+    const ticks = blocks.querySelector('[data-ticks="' + ds.id + '"]');
     for (const [share, label] of [[0.01,'1%'],[0.1,'10%'],[0.5,'50%'],[0.9,'90%']]) {
-      const s = document.createElement('span');
-      s.style.left = (logT(share) * 100) + '%';
-      s.textContent = label;
-      ticks.appendChild(s);
+      const sp = document.createElement('span');
+      sp.style.left = (logT(share) * 100) + '%';
+      sp.textContent = label;
+      ticks.appendChild(sp);
     }
   }
-  document.getElementById('legC').style.display = layers.c ? '' : 'none';
-  document.getElementById('legM').style.display = layers.m ? '' : 'none';
+  // One chip per visible pair, coloured by sampling the two ramps at full strength and
+  // averaging: that is literally what the renderer paints at parity, rather than a
+  // hardcoded purple that would be a lie for any pair but blue and red. The ratios come
+  // from R_MAJ/R_BLEND rather than being retyped as prose.
   const mix = document.getElementById('legMix');
-  mix.style.display = (layers.c && layers.m) ? '' : 'none';
-  mix.innerHTML = params.frontier === 'majority'
-    ? '<span class="mix-chip" style="background:#846995"></span> contested (within 1.5&times;)'
-    : '<span class="mix-chip" style="background:#846995"></span> mixed (both &ge; 2%, within 4.5&times;)';
+  const fa = activeFaiths(), pairs = [];
+  for (let i = 0; i < fa.length; i++)
+    for (let j = i + 1; j < fa.length; j++) pairs.push([fa[i], fa[j]]);
+  if (DATASETS.some(d => d.kind === 'measure' && d.on)) {
+    mix.style.display = pairs.length ? '' : 'none';
+    if (pairs.length) mix.innerHTML =
+      '<span class="mix-chip" style="background:' + (isDark() ? fa[0].ramp[3] : fa[0].ramp[8]) + '"></span>' +
+      ' frontier lines, coloured by whichever faith leads';
+    return;
+  }
+  mix.style.display = pairs.length ? '' : 'none';
+  if (pairs.length) {
+    const q = 255 * 4, band = params.frontier === 'majority'
+      ? 'within ' + R_MAJ + '&times;'
+      : 'both &ge; ' + (MIXT * 100) + '%, within ' + R_BLEND + '&times;';
+    if (fa.length > 2) {
+      // three or more faiths: contest is a stripe, not a hue
+      mix.innerHTML = '<span class="mix-chip" style="background:repeating-linear-gradient(' +
+        '45deg,' + (isDark() ? fa[0].ramp[3] : fa[0].ramp[8]) + ' 0 3px,' +
+        (isDark() ? fa[1].ramp[3] : fa[1].ramp[8]) + ' 3px 5px)"></span>' +
+        ' contested, striped with the runner-up (' + band + ')';
+    } else {
+      const chips = pairs.map(([a, b]) => {
+        const rgb = [0, 1, 2].map(k => Math.round((a.lut[q+k] + b.lut[q+k]) / 2)).join(',');
+        return '<span class="mix-chip" title="' + a.label + ' and ' + b.label +
+               '" style="background:rgb(' + rgb + ')"></span>';
+      }).join(' ');
+      mix.innerHTML = chips + (params.frontier === 'majority'
+        ? ' contested (' + band + ')' : ' mixed (' + band + ')');
+    }
+  }
+  buildConfKey();
+  updateLegendNote();
 }
 
-// data tables (one per faith)
-(function buildTables(){
+// data tables, one per visible dataset
+function buildTables() {
   const cols = [100, 300, 600, 1000, 1400, 1700, 1900, 2026];
-  const fill = (tblId, key, title) => {
-    const tbl = document.getElementById(tblId);
-    let html = `<tr><th>${title}</th>` + cols.map(c => `<th>${c < 1000 ? 'AD ' + c : c}</th>`).join('') + '</tr>';
+  const act = DATASETS.filter(d => d.on);
+  document.getElementById('tablesSummary').textContent = act.length
+    ? 'Data tables: estimated ' + listOf(act.map(d => d.adj)) + ' share by region'
+    : 'Data tables by region';
+  document.getElementById('dataTables').innerHTML = act.map((ds, n) => {
+    let html = '<table' + (n ? ' style="margin-top:14px"' : '') +
+      '><tr><th>' + ds.adj + ' share</th>' +
+      cols.map(c => '<th>' + (c < 1000 ? 'AD ' + c : c) + '</th>').join('') + '</tr>';
     for (const reg of REGIONS) {
-      html += `<tr><td>${reg.n}</td>` + cols.map(c => {
-        const v = interp(reg[key], c) * 100;
-        return `<td>${v === 0 ? '–' : v < 1 ? v.toFixed(2) : v.toFixed(0)}%</td>`;
+      html += '<tr><td>' + reg.n + '</td>' + cols.map(c => {
+        const v = interp(reg[ds.key], c) * 100;
+        return '<td>' + (v === 0 ? '–' : v < 1 ? v.toFixed(2) : v.toFixed(0)) + '%</td>';
       }).join('') + '</tr>';
     }
-    tbl.innerHTML = html;
-  };
-  fill('dataTable', 's', 'Christian share');
-  fill('dataTableM', 'si', 'Muslim share');
-})();
+    return html + '</table>';
+  }).join('');
+}
 
 /* ============ main loop ============ */
 function frame(t) {
@@ -2245,9 +3224,15 @@ function frame(t) {
   requestAnimationFrame(frame);
 }
 
+validateShares();
 buildLUT();
+document.getElementById('confChk').checked = showConf;
+document.getElementById('otherChk').checked = showOther;
+buildLayerToggles();   // after the deep-link block, which sets ds.on
+buildPopHud();
 buildLegend();
-stylePopBars();
+buildTables();
+buildRegionPanel();
 applyModeChrome();
 buildTimeline();
 buildNarrativePanel();
@@ -2255,7 +3240,7 @@ resize();
 onCamChange();   // reflect a ?view= deep link in the reset button and cursor
 if (new URLSearchParams(location.search).get('fs') === '1') toggleFs();
 window.addEventListener('resize', resize);
-runSimulation();
+resimAll();
 requestAnimationFrame(frame);
 </script>
 </body>
