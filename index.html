@@ -156,11 +156,10 @@
   }
   .tl-ghost.on { display: block; }
   .tl-tick { position: absolute; top: 22px; width: 1px; height: 7px; background: var(--baseline); }
-  .tl-tick-label {
-    position: absolute; font-size: 9.5px; color: var(--muted); transform: translateX(-50%);
-    white-space: nowrap;
-  }
-  .tl-year { position: absolute; top: 30px; font-size: 10px; color: var(--muted); transform: translateX(-50%); }
+  /* left/top on both label kinds are set in px by buildTimeline(), which packs them into
+     collision-free rows; no translateX(-50%) here or the packing would be off by half a label. */
+  .tl-tick-label { position: absolute; font-size: 9.5px; color: var(--muted); white-space: nowrap; }
+  .tl-year { position: absolute; font-size: 10px; color: var(--muted); white-space: nowrap; }
 
   .panel {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -1554,6 +1553,7 @@ function resize() {
   buildPaths();
   clampCam();
   updateHUD();
+  buildTimeline();   // label packing is measured in px, so it has to redo on every width change
   needsRedraw = true;
 }
 
@@ -2378,27 +2378,81 @@ const fmtYear = y => {
 const timeline = document.getElementById('timeline');
 const tlFill = document.getElementById('tlFill');
 const tlHandle = document.getElementById('tlHandle');
+const TL_ROW_TOP = 30;    // px from the top of the widget down to the first label row
+const TL_ROW_H = 12;      // px per stacked row of labels
+const TL_GAP = 8;         // px of clear space required between two labels on the same row
+const TL_MAX_ROWS = 3;    // rows of event labels before they start degrading
+
+// Place labels by measured width rather than by index parity. Events are not evenly spaced
+// and the axis is warped, so two long names can land within a few pixels of each other
+// (Great Schism 1054 and Crusades 1095) and print straight through one another. Each label
+// drops into the topmost row that clears its left-hand neighbour, and the ends are clamped
+// inside the track so "AD 33" is not half-cut by the left edge. Anything that would land
+// past the last row is flagged .hidden and takes no space, so it cannot push its neighbours
+// down; the caller decides what to do with it.
+// Sets .left (px, left edge), .row and .hidden on each item, and returns the rows in use.
+function packLabels(items, width, maxRows) {
+  const rowRight = [];   // right edge, in px, of the last visible label placed in each row
+  for (const it of items.slice().sort((a, b) => a.c - b.c)) {
+    const left = Math.min(width - it.w, Math.max(0, it.c - it.w / 2));
+    let r = 0;
+    while (r < rowRight.length && rowRight[r] > left - TL_GAP) r++;
+    it.left = left; it.row = r; it.hidden = r >= maxRows;
+    if (!it.hidden) rowRight[r] = left + it.w;
+  }
+  return Math.min(rowRight.length, maxRows);
+}
+
 function buildTimeline() {
   timeline.querySelectorAll('.tl-tick, .tl-tick-label, .tl-year').forEach(n => n.remove());
   const m = M();
-  m.ticks.forEach(([ey, label], i) => {
-    const p = yearToPos(ey) * 100;
+  const width = timeline.clientWidth;
+  const mk = (cls, text, pos) => {
+    const lab = document.createElement('div');
+    lab.className = cls; lab.textContent = text;
+    timeline.appendChild(lab);
+    return { el: lab, c: pos * width };
+  };
+  const events = m.ticks.map(([ey, label]) => {
+    const p = yearToPos(ey);
     const tick = document.createElement('div');
-    tick.className = 'tl-tick'; tick.style.left = p + '%';
+    tick.className = 'tl-tick'; tick.style.left = (p * 100) + '%';
     timeline.appendChild(tick);
-    const lab = document.createElement('div');
-    lab.className = 'tl-tick-label'; lab.style.left = p + '%';
-    lab.style.top = (i % 2) ? '42px' : '31px';
-    lab.textContent = fmtYear(ey) + ' ' + label; lab.title = label + ', ' + fmtYear(ey);
-    timeline.appendChild(lab);
+    const it = mk('tl-tick-label', fmtYear(ey) + ' ' + label, p);
+    it.el.title = label + ', ' + fmtYear(ey);
+    it.yearText = fmtYear(ey);
+    return it;
   });
-  for (const yy of m.marks) {
-    const lab = document.createElement('div');
-    lab.className = 'tl-year'; lab.style.left = (yearToPos(yy) * 100) + '%';
-    lab.style.top = '54px';
-    lab.textContent = fmtYear(yy);
-    timeline.appendChild(lab);
+  const marks = m.marks.map(yy => mk('tl-year', fmtYear(yy), yearToPos(yy)));
+  if (!width) return;   // built before the widget has a width; resize() rebuilds it
+  const measure = items => { for (const it of items) it.w = it.el.offsetWidth; };
+
+  // A narrow window would otherwise stack these six deep. Degrade instead: three rows of
+  // full labels, then the crowded ones drop to the bare year (the name stays in the tooltip),
+  // then the label goes entirely. The tick is drawn either way, so the event is still marked.
+  measure(events);
+  let rows = packLabels(events, width, TL_MAX_ROWS);
+  // Shortening one label reflows the rest, so a pass can push a different label off the
+  // bottom than the one it just rescued. Repeat until no full label is left overflowing.
+  for (let pass = 0; pass < 3 && events.some(it => it.hidden && !it.short); pass++) {
+    for (const it of events) if (it.hidden && !it.short) { it.short = true; it.el.textContent = it.yearText; }
+    measure(events);
+    rows = packLabels(events, width, TL_MAX_ROWS);
   }
+  for (const it of events) {
+    it.el.style.display = it.hidden ? 'none' : '';
+    it.el.style.left = it.left + 'px';
+    it.el.style.top = (TL_ROW_TOP + it.row * TL_ROW_H) + 'px';
+  }
+  measure(marks);
+  const markTop = TL_ROW_TOP + Math.max(1, rows) * TL_ROW_H + 4;
+  const markRows = packLabels(marks, width, 2);
+  for (const it of marks) {
+    it.el.style.display = it.hidden ? 'none' : '';
+    it.el.style.left = it.left + 'px';
+    it.el.style.top = (markTop + it.row * TL_ROW_H) + 'px';
+  }
+  timeline.style.height = (markTop + Math.max(1, markRows) * TL_ROW_H + 2) + 'px';
 }
 
 /* ============ state & UI ============ */
