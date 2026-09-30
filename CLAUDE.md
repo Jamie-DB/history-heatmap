@@ -27,6 +27,4 @@ An engine for rendering how populations move and change across the world over ti
 
 ## Learned Rules
 
-When Jamie corrects an approach or states a preference specific to this project, immediately append a numbered rule here. Format: `N. [CATEGORY] Never/Always do X, because Y.` Categories: `[STYLE]`, `[CODE]`, `[ARCH]`, `[TOOL]`, `[PROCESS]`, `[DATA]`, `[UX]`, `[OTHER]`. Newer rules win conflicts; never delete, supersede instead. General rules (not project-specific) go to the global `CLAUDE.md` instead.
-
 1. [PROCESS] Always clarify vague ideas with targeted questions before creating artifacts, because Jamie wants to hone in on the idea first and only build once clarity is achieved.
